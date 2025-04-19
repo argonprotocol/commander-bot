@@ -1,11 +1,19 @@
 import {
   type Accountset,
   CohortBidder,
+  JsonExt,
   MiningBids,
 } from "@argonprotocol/mainchain";
-import { type BunFile } from "bun";
-import type { CohortStorage } from "./storage.ts";
+import type { CohortStorage, ICohortBiddingStats } from "./storage.ts";
 
+export interface IBiddingRules {
+  minBid: bigint;
+  maxBid: bigint;
+  maxBalance: bigint;
+  maxSeats: number;
+  bidIncrement: bigint;
+  bidDelay: number;
+}
 /**
  * Creates a bidding process. Between each cohort, it will ask the callback for parameters for the next cohort.
  * @param accountset
@@ -14,9 +22,9 @@ import type { CohortStorage } from "./storage.ts";
  */
 export class AutoBidder {
   public readonly miningBids: MiningBids;
-  public readonly rulesFile: BunFile;
   public activeBidder: CohortBidder | undefined;
   private unsubscribe?: () => void;
+  private readonly rulesFile: Bun.BunFile;
 
   constructor(
     readonly accountset: Accountset,
@@ -27,7 +35,8 @@ export class AutoBidder {
     this.rulesFile = Bun.file(this.biddingRulesPath);
   }
 
-  async start(): Promise<void> {
+  async start(localRpcUrl: string): Promise<void> {
+    await this.accountset.registerKeys(localRpcUrl);
     const { unsubscribe } = await this.miningBids.onCohortChange({
       onBiddingStart: this.onBiddingStart.bind(this),
       onBiddingEnd: this.onBiddingEnd.bind(this),
@@ -49,19 +58,26 @@ export class AutoBidder {
     await this.stopBidder();
   }
 
-  async createBiddingRules(cohortId: number) {
-    console.log("Getting bidding rules for cohort", cohortId);
-    const rules = await this.rulesFile.json();
-    // TODO: add calculation
+  async updateBiddingRules(rules: IBiddingRules): Promise<void> {
+    await this.rulesFile.write(JsonExt.stringify(rules));
+  }
 
-    return {
-      minBid: rules.minBid,
-      maxBid: rules.maxBid,
-      maxBalance: rules.maxBalance,
-      maxSeats: rules.maxSeats,
-      bidIncrement: rules.bidIncrement,
-      bidDelay: rules.bidDelay,
-    };
+  async createBiddingRules(cohortId: number): Promise<IBiddingRules> {
+    console.log("Getting bidding rules for cohort", cohortId);
+    return await this.rulesFile
+      .text()
+      .then(JsonExt.parse)
+      .catch((err: Error) => {
+        console.error("Error reading bidding rules", err);
+        return {
+          minBid: 0n,
+          maxBid: 0n,
+          maxBalance: 0n,
+          maxSeats: 0,
+          bidIncrement: 0n,
+          bidDelay: 0,
+        };
+      });
   }
 
   private async onBiddingEnd(cohortId: number): Promise<void> {
@@ -72,12 +88,21 @@ export class AutoBidder {
 
   private async onBiddingStart(cohortId: number) {
     if (this.activeBidder?.cohortId === cohortId) return;
-    console.log(`Cohort ${cohortId} started bidding`);
     const rules = await this.createBiddingRules(cohortId);
     const startingStats = await this.storage.biddingFile(cohortId).get();
-    const availability =
-      startingStats?.subaccounts ??
-      (await this.accountset.getAvailableMinerAccounts(rules.maxSeats));
+    console.log(`Cohort ${cohortId} started bidding`, {
+      hasStartingStats: !!startingStats,
+      seatGoal: rules.maxSeats,
+    });
+    let availability: ICohortBiddingStats["subaccounts"] | undefined;
+    if (startingStats && startingStats.bids > 0) {
+      availability = startingStats.subaccounts;
+    }
+    if (!availability) {
+      availability = await this.accountset.getAvailableMinerAccounts(
+        rules.maxSeats
+      );
+    }
 
     const activeBidder = new CohortBidder(
       this.accountset,
@@ -85,9 +110,17 @@ export class AutoBidder {
       availability,
       rules
     );
-    activeBidder.stats = startingStats;
+    if (startingStats) {
+      activeBidder.stats = startingStats;
+    }
     this.activeBidder = activeBidder;
     await activeBidder.start();
+    if (!startingStats) {
+      await this.storeStats(cohortId, {
+        subaccounts: availability,
+        ...activeBidder.stats,
+      });
+    }
   }
 
   private async stopBidder() {
@@ -97,9 +130,19 @@ export class AutoBidder {
     const cohortId = bidder.cohortId;
     const subaccounts = bidder.subaccounts;
     const stats = await bidder.stop();
+    console.log("Cohort bidding completed", { cohortId, ...stats });
+    await this.storeStats(cohortId, {
+      ...stats,
+      subaccounts,
+    });
+  }
+
+  private async storeStats(
+    cohortId: number,
+    stats: Partial<ICohortBiddingStats>
+  ): Promise<void> {
     await this.storage.biddingFile(cohortId).mutate((x) => {
       Object.assign(x, stats);
-      x.subaccounts = subaccounts;
     });
   }
 }

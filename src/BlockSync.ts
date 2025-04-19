@@ -12,8 +12,8 @@ import {
   MiningRotations,
   type SignedBlock,
   type Vec,
-} from '@argonprotocol/mainchain';
-import type { CohortStorage } from './storage.ts';
+} from "@argonprotocol/mainchain";
+import { type CohortStorage, type ISyncState, JsonStore } from "./storage.ts";
 
 const defaultCohort = {
   argonotsMined: 0n,
@@ -34,6 +34,8 @@ export class BlockSync {
   archiveClient!: ArgonClient;
   localClient!: ArgonClient;
   latestFinalizedHeader!: Header;
+  scheduleTimer?: NodeJS.Timeout;
+  statusFile: JsonStore<ISyncState>;
 
   gapSynchingUntil?: number;
   unsubscribe?: () => void;
@@ -44,15 +46,16 @@ export class BlockSync {
     public archiveUrl: string
   ) {
     this.accountMiners = new AccountMiners(accountset);
-    this.dequeuePending = this.dequeuePending.bind(this);
+    this.scheduleNext = this.scheduleNext.bind(this);
+    this.statusFile = this.storage.syncStateFile();
   }
 
   async status() {
-    const state = await this.storage.syncStateFile().get();
+    const state = await this.statusFile.get();
     return {
-      latestSynched: state.lastBlock,
+      latestSynched: state?.lastBlock ?? 0,
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
-      firstRotation: state.firstRotation,
+      firstRotation: state?.firstRotation ?? 0,
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
     };
@@ -62,6 +65,10 @@ export class BlockSync {
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;
+    }
+    if (this.scheduleTimer) {
+      clearTimeout(this.scheduleTimer);
+      this.scheduleTimer = undefined;
     }
     await this.archiveClient.disconnect();
     await this.localClient.disconnect();
@@ -76,7 +83,12 @@ export class BlockSync {
     );
     await this.setFirstRotationIfNeeded();
 
-    const state = await this.storage.syncStateFile().get();
+    const state = (await this.statusFile.get()) ?? {
+      firstRotation: 0,
+      lastBlock: 0,
+      queueDepth: 0,
+    };
+
     let hasGap = false;
     let header = this.latestFinalizedHeader;
     // plug any gaps in the sync state
@@ -110,17 +122,18 @@ export class BlockSync {
         this.queue.sort((a, b) => a.number.toNumber() - b.number.toNumber());
       }
     );
-    await this.dequeuePending();
+    await this.scheduleNext();
   }
 
-  async dequeuePending() {
+  async scheduleNext() {
+    if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
     let waitTime = 500;
     if (this.queue.length) {
       let header = this.queue.shift()!;
       await this.processHeader(header);
       if (this.queue.length) waitTime = 0;
     }
-    setTimeout(this.dequeuePending, waitTime);
+    this.scheduleTimer = setTimeout(this.scheduleNext, waitTime);
   }
 
   async processHeader(header: Header) {
@@ -128,7 +141,10 @@ export class BlockSync {
     const tick = getTickFromHeader(this.localClient, header);
 
     if (!tick || !author) {
-      console.warn("No tick or author found for header", header.number);
+      console.warn(
+        "No tick or author found for header",
+        header.number.toNumber()
+      );
       return;
     }
 
@@ -148,7 +164,7 @@ export class BlockSync {
       await this.gapSyncBidding(header, events);
     }
     await this.storage.earningsFile(rotation).mutate((x) => {
-      if (x.lastBlock <= header.number.toNumber()) {
+      if (x.lastBlock >= header.number.toNumber()) {
         console.warn("Already processed block", {
           lastStored: x.lastBlock,
           blockNumber: header.number.toNumber(),
@@ -156,6 +172,7 @@ export class BlockSync {
         return;
       }
       x.lastBlock = header.number.toNumber();
+      const earnedByCohort: any = {};
       for (const [id, earnings] of Object.entries(cohortIds)) {
         const cohortId = Number(id);
         const { argonsMinted, argonotsMined, argonsMined } = earnings;
@@ -163,9 +180,19 @@ export class BlockSync {
         x.byCohortId[cohortId].argonotsMined += argonotsMined;
         x.byCohortId[cohortId].argonsMined += argonsMined;
         x.byCohortId[cohortId].argonsMinted += argonsMinted;
+        earnedByCohort[cohortId] ??= structuredClone(defaultCohort);
+        earnedByCohort[cohortId].argonotsMined += argonotsMined;
+        earnedByCohort[cohortId].argonsMined += argonsMined;
+        earnedByCohort[cohortId].argonsMinted += argonsMinted;
       }
+
+      console.log('Processed finalized block', {
+        rotation,
+        blockNumber: header.number.toNumber(),
+        earnedByCohort,
+      });
     });
-    await this.storage.syncStateFile().mutate((x) => {
+    await this.statusFile.mutate((x) => {
       x.lastBlock = header.number.toNumber();
       x.lastBlockByRotation[rotation] = header.number.toNumber();
     });
@@ -188,10 +215,10 @@ export class BlockSync {
   }
 
   private async setFirstRotationIfNeeded() {
-    const state = await this.storage.syncStateFile().get();
-    if (state.firstRotation > 0) return;
+    const state = await this.statusFile.get();
+    if (state && state.firstRotation > 0) return;
     const rotation = await this.getRotation(this.latestFinalizedHeader);
-    await this.storage.syncStateFile().mutate((x) => {
+    await this.statusFile.mutate((x) => {
       x.firstRotation = rotation;
     });
   }
@@ -201,7 +228,7 @@ export class BlockSync {
       this.localClient,
       header
     );
-    if (!rotation) {
+    if (rotation === undefined) {
       throw new Error(
         `Error getting rotation for header ${header.number.toNumber()}`
       );
@@ -214,6 +241,10 @@ export class BlockSync {
     events: Vec<FrameSystemEventRecord>
   ) {
     const client = this.getRpcClient(header);
+    const stats = await this.statusFile.get();
+    if (stats && stats.lastBlock >= header.number.toNumber()) {
+      return;
+    }
     const api = await client.at(header.hash);
 
     const biddingCohort = await api.query.miningSlot

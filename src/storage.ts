@@ -3,7 +3,10 @@ import { LRU } from "tiny-lru";
 import * as fs from "node:fs";
 import { JsonExt } from "@argonprotocol/mainchain";
 
-export interface IRotationEarnings {
+export interface ILastModified {
+  lastModified?: Date;
+}
+export interface IRotationEarnings extends ILastModified {
   lastBlock: number;
   byCohortId: {
     [cohortId: number]: {
@@ -14,8 +17,9 @@ export interface IRotationEarnings {
   };
 }
 
-export interface ICohortBiddingStats {
+export interface ICohortBiddingStats extends ILastModified {
   cohortId: number;
+  lastBlock: number;
   subaccounts: { isRebid: boolean; index: number; address: string }[];
   seats: number;
   totalArgonsBid: bigint;
@@ -27,7 +31,7 @@ export interface ICohortBiddingStats {
   cohortArgonsPerBlock: bigint;
 }
 
-export interface ISyncState {
+export interface ISyncState extends ILastModified {
   lastBlock: number;
   firstRotation: number;
   lastBlockByRotation: {
@@ -41,14 +45,21 @@ async function atomicWrite(path: string, contents: string) {
   fs.renameSync(tmp, path);
 }
 
-export class JsonStore<T extends Record<string, any>> {
+export class JsonStore<T extends Record<string, any> & ILastModified> {
   private data: T | undefined;
 
-  constructor(private path: string, private defaults: T) {}
+  constructor(
+    private path: string,
+    private defaults: Omit<T, "lastModified">
+  ) {}
 
   public async mutate(mutateFn: (data: T) => void): Promise<void> {
     await this.load();
+    if (!this.data) {
+      this.data = structuredClone(this.defaults) as T;
+    }
     mutateFn(this.data!);
+    this.data!.lastModified = new Date();
     // filter non properties
     this.data = Object.fromEntries(
       Object.entries(this.data!).filter(([key]) => key in this.defaults)
@@ -65,17 +76,20 @@ export class JsonStore<T extends Record<string, any>> {
     }
   }
 
-  public async get(): Promise<T> {
+  public async get(): Promise<T | undefined> {
     await this.load();
     return structuredClone(this.data!);
   }
 
   private async load(): Promise<void> {
     if (this.data === undefined) {
-      const raw = await Bun.file(this.path).text();
-      const data = JsonExt.parse(raw || "{}");
-      const defaults = structuredClone(this.defaults);
-      this.data = { ...defaults, ...data };
+      try {
+        const data = await Bun.file(this.path).text().then(JsonExt.parse);
+        if (data.lastModified) {
+          data.lastModified = new Date(data.lastModified);
+        }
+        this.data = data;
+      } catch {}
     }
   }
 }
@@ -120,6 +134,7 @@ export class CohortStorage {
     if (!entry) {
       entry = new JsonStore<ICohortBiddingStats>(Path.join(this.basedir, key), {
         cohortId,
+        lastBlock: 0,
         seats: 0,
         totalArgonsBid: 0n,
         bids: 0,

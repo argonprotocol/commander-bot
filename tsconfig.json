@@ -3,13 +3,11 @@
     // Enable latest features
     "lib": ["ESNext"],
     "target": "ESNext",
-    "module": "ESNext",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
+    "module": "NodeNext",
     "allowJs": true,
 
     // Bundler mode
-    "moduleResolution": "bundler",
+    "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "verbatimModuleSyntax": true,
@@ -22,6 +20,8 @@
 
     // Some stricter flags
     "noUnusedLocals": true,
-    "noUnusedParameters": true
-  }
+    "noUnusedParameters": true,
+    "typeRoots": ["./node_modules/@types", "@types/bun"]
+  },
+  "include": ["src", "__test__"]
 }

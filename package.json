@@ -5,7 +5,8 @@
   "description": "An api for integration with commander",
   "main": "index.ts",
   "scripts": {
-    "start": "bun src/index.ts"
+    "start": "bun src/index.ts",
+    "test": "bun test"
   },
   "type": "module",
   "dependencies": {
@@ -13,7 +14,9 @@
     "tiny-lru": "^11.2.11"
   },
   "devDependencies": {
+    "@argonprotocol/testing": "file:../mainchain/testing/nodejs",
     "@types/bun": "latest",
     "typescript": "^5.8.3"
-  }
+  },
+  "packageManager": "yarn@4.9.1"
 }

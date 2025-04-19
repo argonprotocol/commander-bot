@@ -1,50 +1,45 @@
-import { CohortStorage } from './storage.ts';
-import { BlockSync } from './BlockSync.ts';
-import { Accountset, getClient, keyringFromFile } from '@argonprotocol/mainchain';
-import { jsonExt, onExit } from './utils.ts';
-import { AutoBidder } from './AutoBidder.ts';
-
-const storage = new CohortStorage(Bun.env.DATADIR);
+import { JsonExt, keyringFromFile } from '@argonprotocol/mainchain';
+import { jsonExt, onExit, requireAll, requireEnv } from "./utils.ts";
+import Bot from "./Bot.ts";
 
 const pair = await keyringFromFile({
-  filePath: Bun.env.KEYPAIR_PATH,
+  filePath: requireEnv("KEYPAIR_PATH"),
   passphrase: Bun.env.KEYPAIR_PASSPHRASE,
 });
-const client = getClient(Bun.env.LOCAL_RPC_URL);
-const accountset = new Accountset({
-  client,
-  seedAccount: pair,
-});
-
-const autoBidder = new AutoBidder(
-  accountset,
-  storage,
-  Bun.env.BIDDING_RULES_PATH
+const bot = new Bot(
+  requireAll({
+    datadir: Bun.env.DATADIR!,
+    pair,
+    biddingRulesPath: Bun.env.BIDDING_RULES_PATH,
+    archiveRpcUrl: Bun.env.ARCHIVE_NODE_URL,
+    localRpcUrl: Bun.env.LOCAL_RPC_URL,
+    keysMnemonic: Bun.env.SESSION_KEYS_MNEMONIC,
+  })
 );
-const blockSync = new BlockSync(accountset, storage, Bun.env.ARCHIVE_NODE_URL);
 
-Bun.serve({
+const server = Bun.serve({
   port: Bun.env.PORT ?? 3000,
   routes: {
     "/status": async () => {
-      const status = await blockSync.status();
+      const status = await bot.status();
       return Response.json(status);
     },
     "/earnings/:rotationId": async (req) => {
       const rotationId = req.params.rotationId;
-      const data = await storage.earningsFile(Number(rotationId)).get();
+      const data = await bot.storage.earningsFile(Number(rotationId)).get();
       return jsonExt(data);
     },
     "/bidding/:cohortId": async (req) => {
       const cohortId = req.params.cohortId;
-      const data = await storage.biddingFile(Number(cohortId)).get();
+      const data = await bot.storage.biddingFile(Number(cohortId)).get();
       return jsonExt(data);
     },
     "/bidding-rules": {
       POST: async (req) => {
-        const body = await req.json();
-        await autoBidder.rulesFile.write(JSON.stringify(body));
-        await autoBidder.restart();
+        const body = await req.text();
+        const rules = JsonExt.parse(body)
+        await bot.autobidder.updateBiddingRules(rules);
+        await bot.autobidder.restart();
         return Response.json({ saved: true });
       },
     },
@@ -54,10 +49,7 @@ Bun.serve({
     return new Response("Not Found", { status: 404 });
   },
 });
+onExit(() => server.stop(true));
 
-await blockSync.start();
-await autoBidder.start();
-onExit(async () => {
-  await blockSync.stop();
-  await autoBidder.stop();
-});
+await bot.start();
+onExit(() => bot.stop());

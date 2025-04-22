@@ -1,9 +1,17 @@
-import { activateNotary, sudo, teardown, TestMainchain, TestNotary } from '@argonprotocol/testing';
+import {
+  activateNotary,
+  runOnTeardown,
+  sudo,
+  teardown,
+  TestMainchain,
+  TestNotary,
+} from '@argonprotocol/testing';
 import { MiningRotations, mnemonicGenerate } from '@argonprotocol/mainchain';
-import { afterAll, afterEach, expect, it } from 'bun:test';
-import Bot from '../src/Bot.ts';
+import { afterAll, afterEach, expect, it, spyOn } from 'bun:test';
 import * as fs from 'node:fs';
 import Path from 'node:path';
+import Bot from '../src/Bot.ts';
+import * as BidingRules from '../src/createBiddingRules.ts';
 
 afterEach(teardown);
 afterAll(teardown);
@@ -21,7 +29,7 @@ it('can autobid and store stats', async () => {
   await activateNotary(sudo(), client, notary);
 
   const path = fs.mkdtempSync('/tmp/bot-');
-  // runOnTeardown(() => fs.promises.rm(path, { recursive: true, force: true }));
+  runOnTeardown(() => fs.promises.rm(path, { recursive: true, force: true }));
 
   const bot = new Bot({
     pair: sudo(),
@@ -31,13 +39,16 @@ it('can autobid and store stats', async () => {
     datadir: path,
     keysMnemonic: mnemonicGenerate(),
   });
-  await bot.autobidder.updateBiddingRules({
-    maxSeats: 10,
-    bidDelay: 0,
-    maxBalance: 100_000_000n,
-    maxBid: 1_000_000n,
-    minBid: 10_000n,
-    bidIncrement: 10_000n,
+
+  spyOn(BidingRules, 'default').mockImplementation(async () => {
+    return {
+      maxSeats: 10,
+      bidDelay: 0,
+      maxBalance: 100_000_000n,
+      maxBid: 1_000_000n,
+      minBid: 10_000n,
+      bidIncrement: 10_000n,
+    };
   });
 
   await expect(bot.start()).resolves.toBeTruthy();
@@ -125,7 +136,7 @@ it('can autobid and store stats', async () => {
   // try to recover from blocks
 
   const path2 = fs.mkdtempSync('/tmp/bot2-');
-  // runOnTeardown(() => fs.promises.rm(path2, { recursive: true, force: true }));
+  runOnTeardown(() => fs.promises.rm(path2, { recursive: true, force: true }));
   const botRestart = new Bot({
     pair: sudo(),
     archiveRpcUrl: chain.address,

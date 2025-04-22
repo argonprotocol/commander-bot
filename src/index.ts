@@ -1,6 +1,7 @@
-import { JsonExt, keyringFromFile } from '@argonprotocol/mainchain';
+import { keyringFromFile } from '@argonprotocol/mainchain';
 import { jsonExt, onExit, requireAll, requireEnv } from './utils.ts';
 import Bot from './Bot.ts';
+import createBiddingRules from './createBiddingRules.js';
 
 let oldestRotationToSync: number | undefined;
 if (Bun.env.OLDEST_ROTATION_TO_SYNC) {
@@ -39,13 +40,10 @@ const server = Bun.serve({
       const data = await bot.storage.biddingFile(Number(cohortId)).get();
       return jsonExt(data);
     },
-    '/bidding-rules': {
-      POST: async req => {
-        const body = await req.text();
-        const rules = JsonExt.parse(body);
-        await bot.autobidder.updateBiddingRules(rules);
+    '/restart-bidder': {
+      POST: async () => {
         await bot.autobidder.restart();
-        return Response.json({ saved: true });
+        return Response.json({ ok: true });
       },
     },
   },
@@ -56,5 +54,6 @@ const server = Bun.serve({
 });
 onExit(() => server.stop(true));
 
+await createBiddingRules(1, await bot.accountset.client, Bun.env.BIDDING_RULES_PATH!);
 await bot.start();
 onExit(() => bot.stop());

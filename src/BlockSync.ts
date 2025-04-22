@@ -2,9 +2,11 @@ import {
   AccountMiners,
   type Accountset,
   type ArgonClient,
-  convertFixedU128ToBigNumber,
+  type Call,
+  CohortBidder,
   type FrameSystemEventRecord,
   type GenericEvent,
+  type GenericExtrinsic,
   getAuthorFromHeader,
   getClient,
   getTickFromHeader,
@@ -12,14 +14,20 @@ import {
   MiningRotations,
   type SignedBlock,
   type Vec,
-} from "@argonprotocol/mainchain";
-import { type CohortStorage, type ISyncState, JsonStore } from "./storage.ts";
+} from '@argonprotocol/mainchain';
+import { type CohortStorage, type ISyncState, JsonStore } from './storage.ts';
 
 const defaultCohort = {
   argonotsMined: 0n,
   argonsMined: 0n,
   argonsMinted: 0n,
 };
+
+export interface ILastProcessed {
+  rotation: number;
+  date: Date;
+  blockNumber: number;
+}
 
 /**
  * Monitor the accountset for new cohorts and earnings. Store the earnings and bidding to files.
@@ -29,23 +37,25 @@ const defaultCohort = {
  */
 export class BlockSync {
   queue: Header[] = [];
-  lastProcessed?: Date;
-  accountMiners: AccountMiners;
+  lastProcessed?: ILastProcessed;
+  accountMiners!: AccountMiners;
   archiveClient!: ArgonClient;
   localClient!: ArgonClient;
   latestFinalizedHeader!: Header;
   scheduleTimer?: NodeJS.Timeout;
   statusFile: JsonStore<ISyncState>;
 
-  gapSynchingUntil?: number;
-  unsubscribe?: () => void;
+  didProcessFinalizedBlock?: (info: ILastProcessed) => void;
+
+  private unsubscribe?: () => void;
+  private isStopping: boolean = false;
 
   constructor(
     public accountset: Accountset,
     public storage: CohortStorage,
-    public archiveUrl: string
+    public archiveUrl: string,
+    private oldestRotationToSync?: number,
   ) {
-    this.accountMiners = new AccountMiners(accountset);
     this.scheduleNext = this.scheduleNext.bind(this);
     this.statusFile = this.storage.syncStateFile();
   }
@@ -62,6 +72,8 @@ export class BlockSync {
   }
 
   async stop() {
+    if (this.isStopping) return;
+    this.isStopping = true;
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = undefined;
@@ -71,25 +83,19 @@ export class BlockSync {
       this.scheduleTimer = undefined;
     }
     await this.archiveClient.disconnect();
-    await this.localClient.disconnect();
+    // local client is not owned by this service
   }
 
   async start() {
+    this.isStopping = false;
     this.archiveClient = await getClient(this.archiveUrl);
     this.localClient = await this.accountset.client;
     const finalizedHash = await this.localClient.rpc.chain.getFinalizedHead();
-    this.latestFinalizedHeader = await this.localClient.rpc.chain.getHeader(
-      finalizedHash
-    );
+    this.latestFinalizedHeader = await this.localClient.rpc.chain.getHeader(finalizedHash);
     await this.setFirstRotationIfNeeded();
 
-    const state = (await this.statusFile.get()) ?? {
-      firstRotation: 0,
-      lastBlock: 0,
-      queueDepth: 0,
-    };
+    const state = (await this.statusFile.get())!;
 
-    let hasGap = false;
     let header = this.latestFinalizedHeader;
     // plug any gaps in the sync state
     while (
@@ -97,14 +103,21 @@ export class BlockSync {
       (await this.getRotation(header)) >= state.firstRotation
     ) {
       this.queue.unshift(header);
-      header = await this.getRpcClient(header).rpc.chain.getHeader(
-        header.parentHash
-      );
-      hasGap = true;
+      header = await this.getParentHeader(header);
     }
-    this.gapSynchingUntil = hasGap
-      ? this.latestFinalizedHeader.number.toNumber()
-      : undefined;
+    console.log('Sync starting', {
+      ...state,
+      queue: `${this.queue.at(0)?.number.toNumber()}..${this.queue.at(-1)?.number.toNumber()}`,
+    });
+
+    const loadAt = this.queue.at(0) ?? this.latestFinalizedHeader;
+    const api = await this.getRpcClient(loadAt).at(loadAt.hash);
+    const startingMinerState = await this.accountset.loadRegisteredMiners(api);
+
+    this.accountMiners = new AccountMiners(
+      this.accountset,
+      startingMinerState.filter(x => x.cohortId !== undefined) as any,
+    );
 
     // catchup now
     while (this.queue.length) {
@@ -112,16 +125,14 @@ export class BlockSync {
       await this.processHeader(header);
     }
 
-    this.unsubscribe = await this.localClient.rpc.chain.subscribeFinalizedHeads(
-      (header) => {
-        if (this.latestFinalizedHeader.hash === header.hash) {
-          return;
-        }
-        this.latestFinalizedHeader = header;
-        this.queue.push(header);
-        this.queue.sort((a, b) => a.number.toNumber() - b.number.toNumber());
+    this.unsubscribe = await this.localClient.rpc.chain.subscribeFinalizedHeads(header => {
+      if (this.latestFinalizedHeader.hash === header.hash) {
+        return;
       }
-    );
+      this.latestFinalizedHeader = header;
+      this.queue.push(header);
+      this.queue.sort((a, b) => a.number.toNumber() - b.number.toNumber());
+    });
     await this.scheduleNext();
   }
 
@@ -129,8 +140,23 @@ export class BlockSync {
     if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
     let waitTime = 500;
     if (this.queue.length) {
-      let header = this.queue.shift()!;
-      await this.processHeader(header);
+      // plug any gaps in the sync state
+      const state = (await this.statusFile.get())!;
+      let first = this.queue.at(0)!;
+      while (first.number.toNumber() > state.lastBlock + 1) {
+        first = await this.getParentHeader(first);
+        this.queue.unshift(first);
+      }
+
+      // now process the next header
+      const header = this.queue.shift()!;
+      try {
+        await this.processHeader(header);
+      } catch (e) {
+        console.error(`Error processing block ${header.number.toNumber()} header`, e);
+        if (this.isStopping) return;
+        throw e;
+      }
       if (this.queue.length) waitTime = 0;
     }
     this.scheduleTimer = setTimeout(this.scheduleNext, waitTime);
@@ -139,37 +165,30 @@ export class BlockSync {
   async processHeader(header: Header) {
     const author = getAuthorFromHeader(this.localClient, header);
     const tick = getTickFromHeader(this.localClient, header);
+    const rotation = await this.getRotation(header);
 
     if (!tick || !author) {
-      console.warn(
-        "No tick or author found for header",
-        header.number.toNumber()
-      );
+      console.warn('No tick or author found for header', header.number.toNumber());
       return;
     }
 
     const client = this.getRpcClient(header);
     const api = await client.at(header.hash);
     const events = await api.query.system.events();
-    const { rotation, ...cohortIds } = await this.accountMiners.onBlock(
+    const { rotation: _r, ...cohortIds } = await this.accountMiners.onBlock(
       header,
       { tick, author },
-      events.map((x) => x.event)
+      events.map(x => x.event),
     );
 
-    if (
-      this.gapSynchingUntil &&
-      header.number.toNumber() < this.gapSynchingUntil
-    ) {
-      await this.gapSyncBidding(header, events);
-    }
-    await this.storage.earningsFile(rotation).mutate((x) => {
+    await this.syncBidding(header, events);
+    await this.storage.earningsFile(rotation).mutate(x => {
       if (x.lastBlock >= header.number.toNumber()) {
-        console.warn("Already processed block", {
+        console.warn('Already processed block', {
           lastStored: x.lastBlock,
           blockNumber: header.number.toNumber(),
         });
-        return;
+        return false;
       }
       x.lastBlock = header.number.toNumber();
       const earnedByCohort: any = {};
@@ -192,11 +211,15 @@ export class BlockSync {
         earnedByCohort,
       });
     });
-    await this.statusFile.mutate((x) => {
+    await this.statusFile.mutate(x => {
+      if (x.lastBlock >= header.number.toNumber()) {
+        return false;
+      }
       x.lastBlock = header.number.toNumber();
       x.lastBlockByRotation[rotation] = header.number.toNumber();
     });
-    this.lastProcessed = new Date();
+    this.lastProcessed = { blockNumber: header.number.toNumber(), rotation, date: new Date() };
+    this.didProcessFinalizedBlock?.(this.lastProcessed);
   }
 
   /**
@@ -205,9 +228,7 @@ export class BlockSync {
    */
   private getRpcClient(headerOrNumber: Header | number): ArgonClient {
     let headerNumber =
-      typeof headerOrNumber === "number"
-        ? headerOrNumber
-        : headerOrNumber.number.toNumber();
+      typeof headerOrNumber === 'number' ? headerOrNumber : headerOrNumber.number.toNumber();
     if (headerNumber < this.latestFinalizedHeader.number.toNumber() - 256) {
       return this.archiveClient;
     }
@@ -217,110 +238,67 @@ export class BlockSync {
   private async setFirstRotationIfNeeded() {
     const state = await this.statusFile.get();
     if (state && state.firstRotation > 0) return;
-    const rotation = await this.getRotation(this.latestFinalizedHeader);
-    await this.statusFile.mutate((x) => {
+    const rotation =
+      this.oldestRotationToSync ?? (await this.getRotation(this.latestFinalizedHeader));
+    await this.statusFile.mutate(x => {
       x.firstRotation = rotation;
     });
   }
 
+  private async getParentHeader(header: Header): Promise<Header> {
+    return this.getRpcClient(header).rpc.chain.getHeader(header.parentHash);
+  }
+
   private async getRotation(header: Header): Promise<number> {
-    const rotation = await new MiningRotations().getForHeader(
-      this.localClient,
-      header
-    );
+    const rotation = await new MiningRotations().getForHeader(this.localClient, header);
     if (rotation === undefined) {
-      throw new Error(
-        `Error getting rotation for header ${header.number.toNumber()}`
-      );
+      throw new Error(`Error getting rotation for header ${header.number.toNumber()}`);
     }
     return rotation;
   }
 
-  private async gapSyncBidding(
-    header: Header,
-    events: Vec<FrameSystemEventRecord>
-  ) {
+  private async syncBidding(header: Header, events: Vec<FrameSystemEventRecord>) {
     const client = this.getRpcClient(header);
-    const stats = await this.statusFile.get();
-    if (stats && stats.lastBlock >= header.number.toNumber()) {
-      return;
-    }
     const api = await client.at(header.hash);
 
-    const biddingCohort = await api.query.miningSlot
-      .nextCohortId()
-      .then((x) => x.toNumber());
-
-    const biddingFile = this.storage.biddingFile(biddingCohort);
-    if (!(await biddingFile.exists())) {
-      const argonotsPerSeat = await api.query.miningSlot
-        .argonotsPerMiningSeat()
-        .then((x) => x.toBigInt());
-      const argonotUsdPrice = await api.query.priceIndex.current().then((x) => {
-        if (x.isNone) return 0;
-        return convertFixedU128ToBigNumber(
-          x.unwrap().argonotUsdPrice.toBigInt()
-        ).toNumber();
-      });
-      const cohortArgonsPerBlock = await api.query.blockRewards
-        .argonsPerBlock()
-        .then((x) => x.toBigInt());
-
-      await biddingFile.mutate((x) => {
-        Object.assign(x, {
-          argonotsPerSeat,
-          argonotUsdPrice,
-          cohortArgonsPerBlock,
-        });
-      });
-    }
-
     let block: SignedBlock | undefined;
-    for (const { event } of events) {
-      const miningFee = await this.hasMiningFee(client, event, events);
-      if (miningFee > 0n) {
-        block ??= await client.rpc.chain.getBlock(header.hash);
-        const ext = block.block.extrinsics.at(event.index as any)!;
-        const decoded = client.registry.createType("Extrinsic", ext);
+    const blockNumber = header.number.toNumber();
+    const biddingCohort = await api.query.miningSlot.nextCohortId().then(x => x.toNumber());
 
-        // TODO: handle proxies
-        if (client.tx.utility.batch.is(decoded)) {
-          const [calls] = decoded.args;
-          const accounts: { address: string; bid: bigint }[] = [];
-          for (const call of calls) {
-            if (client.tx.miningSlot.bid.is(call)) {
-              const [bid, _rewardDestination, _keys, miningAccountId] =
-                call.args;
-              const address = miningAccountId.value.toHuman();
-              accounts.push({ address, bid: bid.toBigInt() });
-            }
-          }
-          await biddingFile.mutate((x) => {
-            x.fees += miningFee;
-            x.bids += accounts.length;
-            for (const { bid } of accounts) {
-              if (bid > x.maxBidPerSeat) {
-                x.maxBidPerSeat = bid;
-              }
-            }
-            x.subaccounts = accounts.map(({ address }) => {
-              const ourMiner = this.accountset.subAccountsByAddress[address];
-              return {
-                index: ourMiner.index,
-                address,
-                // TODO: we aren't recovering this properly
-                isRebid: false,
-              };
-            });
-          });
-        }
+    for (const { event, phase } of events) {
+      if (phase.isApplyExtrinsic) {
+        const extrinsicIndex = phase.asApplyExtrinsic.toNumber();
+        const extrinsicEvents = events.filter(
+          x => x.phase.isApplyExtrinsic && x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex,
+        );
+        await this.processExtrinsicEvent(
+          client,
+          event,
+          extrinsicEvents,
+          biddingCohort,
+          header,
+          async () => {
+            block ??= await client.rpc.chain.getBlock(header.hash);
+            const ext = block.block.extrinsics.at(extrinsicIndex)!;
+            return client.registry.createType('Extrinsic', ext);
+          },
+        );
       }
       if (client.events.miningSlot.NewMiners.is(event)) {
         const [_startIndex, newMiners, _released, cohortId] = event.data;
-        await this.storage.biddingFile(cohortId.toNumber()).mutate((x) => {
+        await this.storage.biddingFile(cohortId.toNumber()).mutate(x => {
+          if (x.lastBlock >= blockNumber) {
+            console.warn('Already processed cohort block', {
+              lastStored: x.lastBlock,
+              cohortId: cohortId.toNumber(),
+              blockNumber: blockNumber,
+            });
+            return false;
+          }
           x.seats = 0;
           x.totalArgonsBid = 0n;
           x.subaccounts = [];
+          x.lastBlock = blockNumber;
           for (const miner of newMiners) {
             const address = miner.accountId.toHuman();
             const bidAmount = miner.bid.toBigInt();
@@ -343,10 +321,95 @@ export class BlockSync {
     }
   }
 
+  private async processExtrinsicEvent(
+    client: ArgonClient,
+    event: GenericEvent,
+    extrinsicEvents: FrameSystemEventRecord[],
+    biddingCohort: number,
+    header: Header,
+    getExtrinsic: () => Promise<GenericExtrinsic>,
+  ) {
+    const blockNumber = header.number.toNumber();
+    const miningFee = await this.hasMiningFee(client, event, extrinsicEvents);
+    if (miningFee === 0n) return;
+    const api = await client.at(header.hash);
+    const biddingFile = this.storage.biddingFile(biddingCohort);
+    const biddingStats = await biddingFile.get();
+    if (biddingStats) {
+      await biddingFile.mutate(x => {
+        if (x.lastBlock >= blockNumber) {
+          console.warn('Already processed block', {
+            lastStored: x.lastBlock,
+            blockNumber: blockNumber,
+          });
+          return false;
+        }
+        x.fees += miningFee;
+        x.lastBlock = blockNumber;
+      });
+      // don't back fill
+      return;
+    }
+
+    console.log('Back-filling stats for bidding cohort', {
+      cohortId: biddingCohort,
+      blockNumber,
+    });
+    const decoded = await getExtrinsic();
+    const subaccounts: {
+      address: string;
+      bid: bigint;
+      index: number;
+      isRebid: false;
+    }[] = [];
+
+    let calls: Call[] = [];
+    if (client.tx.proxy.proxy.is(decoded)) {
+      const [address, proxyType, call] = decoded.args;
+      if (proxyType.value.isMiningBid && this.accountset.seedAddress === address.toHuman()) {
+        if (client.tx.utility.batch.is(call)) {
+          calls = call.args[0];
+        }
+      }
+    } else if (client.tx.utility.batch.is(decoded)) {
+      calls = decoded.args[0];
+    }
+    for (const call of calls) {
+      if (client.tx.miningSlot.bid.is(call)) {
+        const [bid, _rewardDestination, _keys, miningAccountId] = call.args;
+        const address = miningAccountId.value.toHuman();
+        const ourMiner = this.accountset.subAccountsByAddress[address];
+        subaccounts.push({
+          address,
+          index: ourMiner.index,
+          bid: bid.toBigInt(),
+          // TODO: we aren't recovering this properly
+          isRebid: false,
+        });
+      }
+    }
+    console.info('Bids found for cohort', {
+      biddingCohort,
+      blockNumber: blockNumber,
+      fees: miningFee,
+      bids: subaccounts.length,
+      subaccounts,
+    });
+    const defaultStats = await CohortBidder.getStartingData(api);
+    await biddingFile.mutate(x => {
+      Object.assign(x, {
+        ...defaultStats,
+        fees: miningFee,
+        subaccounts,
+        lastBlock: blockNumber,
+      });
+    });
+  }
+
   private async hasMiningFee(
     client: ArgonClient,
     event: GenericEvent,
-    events: Vec<FrameSystemEventRecord>
+    extrinsicEvents: FrameSystemEventRecord[],
   ) {
     if (!client.events.transactionPayment.TransactionFeePaid.is(event)) {
       return 0n;
@@ -356,24 +419,23 @@ export class BlockSync {
     if (account.toHuman() !== this.accountset.txSubmitterPair.address) {
       return 0n;
     }
-    const extrinsicEvents = events.filter((x) => x.event.index === event.index);
     const hasMiningEvents = extrinsicEvents.some(
-      (x) =>
+      x =>
         client.events.miningSlot.SlotBidderAdded.is(x.event) ||
-        client.events.miningSlot.SlotBidderDropped.is(x.event)
+        client.events.miningSlot.SlotBidderDropped.is(x.event),
     );
-    const isMiningError = extrinsicEvents.some((x) => {
+    const isMiningError = extrinsicEvents.some(x => {
       if (client.events.utility.BatchInterrupted.is(x.event)) {
         const [_index, error] = x.event.data;
         if (error.isModule) {
           const decoded = client.registry.findMetaError(error.asModule);
-          if (decoded.section === "miningSlot") {
+          if (decoded.section === 'miningSlot') {
             return true;
           }
         }
       }
     });
-    if (isMiningError && hasMiningEvents) {
+    if (isMiningError || hasMiningEvents) {
       return fee.toBigInt();
     }
     return 0n;

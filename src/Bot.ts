@@ -17,7 +17,8 @@ export default class Bot {
       archiveRpcUrl: string;
       biddingRulesPath: string;
       keysMnemonic: string;
-    }
+      oldestRotationToSync?: number;
+    },
   ) {
     this.storage = new CohortStorage(options.datadir);
     const client = getClient(options.localRpcUrl);
@@ -27,15 +28,12 @@ export default class Bot {
       sessionKeyMnemonic: options.keysMnemonic,
       subaccountRange: new Array(99).fill(0).map((_, i) => i),
     });
-    this.autobidder = new AutoBidder(
-      this.accountset,
-      this.storage,
-      options.biddingRulesPath
-    );
+    this.autobidder = new AutoBidder(this.accountset, this.storage, options.biddingRulesPath);
     this.blockSync = new BlockSync(
       this.accountset,
       this.storage,
-      options.archiveRpcUrl
+      options.archiveRpcUrl,
+      options.oldestRotationToSync,
     );
   }
 
@@ -47,17 +45,17 @@ export default class Bot {
     try {
       await this.blockSync.start();
     } catch (error) {
-      console.error("Error starting block sync", error);
+      console.error('Error starting block sync', error);
       throw error;
     }
     try {
       await this.autobidder.start(this.options.localRpcUrl);
     } catch (error) {
-      console.error("Error starting autobidder", error);
+      console.error('Error starting autobidder', error);
       throw error;
     }
     const status = await this.blockSync.status();
-    console.log("Block sync updated", status);
+    console.log('Block sync updated', status);
     return status;
   }
 

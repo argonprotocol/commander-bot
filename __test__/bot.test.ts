@@ -1,21 +1,14 @@
-import {
-  activateNotary,
-  addTeardown,
-  sudo,
-  teardown,
-  TestMainchain,
-  TestNotary,
-} from "@argonprotocol/testing";
-import { MiningRotations, mnemonicGenerate } from "@argonprotocol/mainchain";
-import { afterAll, afterEach, expect, it } from "bun:test";
-import Bot from "../src/Bot.ts";
-import * as fs from "node:fs";
-import Path from "node:path";
+import { activateNotary, sudo, teardown, TestMainchain, TestNotary } from '@argonprotocol/testing';
+import { MiningRotations, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { afterAll, afterEach, expect, it } from 'bun:test';
+import Bot from '../src/Bot.ts';
+import * as fs from 'node:fs';
+import Path from 'node:path';
 
 afterEach(teardown);
 afterAll(teardown);
 
-it("can autobid and store stats", async () => {
+it('can autobid and store stats', async () => {
   const chain = new TestMainchain();
   await chain.launch({ miningThreads: 1 });
   const notary = new TestNotary();
@@ -27,18 +20,14 @@ it("can autobid and store stats", async () => {
   const client = await clientPromise;
   await activateNotary(sudo(), client, notary);
 
-  const path = fs.mkdtempSync("/tmp/bot-");
-  addTeardown({
-    teardown(): Promise<void> {
-      return fs.promises.rm(path, { recursive: true, force: true });
-    },
-  });
+  const path = fs.mkdtempSync('/tmp/bot-');
+  // runOnTeardown(() => fs.promises.rm(path, { recursive: true, force: true }));
 
   const bot = new Bot({
     pair: sudo(),
     archiveRpcUrl: chain.address,
     localRpcUrl: chain.address,
-    biddingRulesPath: Path.resolve(path, "rules.json"),
+    biddingRulesPath: Path.resolve(path, 'rules.json'),
     datadir: path,
     keysMnemonic: mnemonicGenerate(),
   });
@@ -56,9 +45,9 @@ it("can autobid and store stats", async () => {
   expect(status.latestSynched).toBeGreaterThanOrEqual(status.latestFinalized);
   console.log(status);
   // wait for the first rotation
-  await new Promise(async (resolve) => {
-    const unsubscribe = await client.query.miningSlot.nextSlotCohort((x) => {
-      if (x.length) {
+  await new Promise(async resolve => {
+    const unsubscribe = await client.query.miningSlot.activeMinersCount(x => {
+      if (x.toNumber() > 0) {
         unsubscribe();
         resolve(x);
       }
@@ -68,56 +57,105 @@ it("can autobid and store stats", async () => {
   let latestFinalized = 0;
   const rotationsWithEarnings = new Set<number>();
   // wait for first finalized vote block
-  await new Promise(async (resolve) => {
-    const unsubscribe = await client.rpc.chain.subscribeFinalizedHeads(
-      async (x) => {
-        const api = await client.at(x.hash);
-        const isVoteBlock = await api.query.blockSeal
-          .isBlockFromVoteSeal()
-          .then((x) => x.isTrue);
-        latestFinalized = x.number.toNumber();
-        console.log(`Block ${x.number} is vote block: ${isVoteBlock}`);
-        if (isVoteBlock) {
-          const rotation = await new MiningRotations().getForHeader(client, x);
-          if (rotation !== undefined) rotationsWithEarnings.add(rotation);
-          voteBlocks++;
-          if (voteBlocks > 5) {
-            unsubscribe();
-            resolve(x);
-          }
+  await new Promise(async resolve => {
+    const unsubscribe = await client.rpc.chain.subscribeFinalizedHeads(async x => {
+      const api = await client.at(x.hash);
+      const isVoteBlock = await api.query.blockSeal.isBlockFromVoteSeal().then(x => x.isTrue);
+      latestFinalized = x.number.toNumber();
+      if (isVoteBlock) {
+        console.log(`Block ${x.number} is vote block`);
+        const rotation = await new MiningRotations().getForHeader(client, x);
+        if (rotation !== undefined) rotationsWithEarnings.add(rotation);
+        voteBlocks++;
+        if (voteBlocks > 5) {
+          unsubscribe();
+          resolve(x);
         }
       }
-    );
+    });
   });
 
-  console.log(`First rotation earnings: ${[...rotationsWithEarnings]}`);
+  console.log(`Rotations with earnings: ${[...rotationsWithEarnings]}`);
   expect(rotationsWithEarnings.size).toBeGreaterThan(0);
 
   const cohort1Stats = await bot.storage.biddingFile(1).get();
   expect(cohort1Stats).toBeTruthy();
-  expect(cohort1Stats?.bids).toBeGreaterThan(0);
   expect(cohort1Stats?.argonotsPerSeat).toBeGreaterThanOrEqual(10000);
   expect(cohort1Stats?.maxBidPerSeat).toBeGreaterThan(0);
   expect(cohort1Stats?.seats).toBe(10);
   expect(cohort1Stats?.totalArgonsBid).toBe(10_000n * 10n);
 
   // wait for sync state to equal latest finalized
-  while(true) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  while (true) {
+    await new Promise(resolve => setTimeout(resolve, 100));
     const status = await bot.status();
     if (status.latestSynched >= latestFinalized) break;
   }
 
+  const cohorts = new Set<number>();
   let argonsMined = 0n;
   for (const rotationId of rotationsWithEarnings) {
     const data = await bot.storage.earningsFile(rotationId!).get();
     expect(data).toBeDefined();
     expect(Object.keys(data!.byCohortId).length).toBeGreaterThanOrEqual(1);
     for (const [cohortId, cohortData] of Object.entries(data!.byCohortId)) {
+      cohorts.add(Number(cohortId!));
       expect(Number(cohortId)).toBeGreaterThan(0);
       expect(cohortData.argonsMined).toBeGreaterThan(0);
       argonsMined += cohortData.argonsMined;
     }
   }
   expect(argonsMined).toBeGreaterThanOrEqual(375_000 * voteBlocks);
+
+  // wait for a clean stop
+  const lastProcessed = bot.blockSync.lastProcessed;
+  await new Promise(resolve => {
+    bot.blockSync.didProcessFinalizedBlock = x => {
+      if (x.rotation > lastProcessed!.rotation) {
+        resolve(x);
+      }
+    };
+  });
+  console.log('Stopping bot 1', {
+    rotationsWithEarnings: [...rotationsWithEarnings],
+    cohorts: [...cohorts],
+  });
+  await bot.stop();
+
+  // try to recover from blocks
+
+  const path2 = fs.mkdtempSync('/tmp/bot2-');
+  // runOnTeardown(() => fs.promises.rm(path2, { recursive: true, force: true }));
+  const botRestart = new Bot({
+    pair: sudo(),
+    archiveRpcUrl: chain.address,
+    localRpcUrl: chain.address,
+    biddingRulesPath: Path.resolve(path, 'rules.json'),
+    datadir: path2,
+    keysMnemonic: mnemonicGenerate(),
+    oldestRotationToSync: 1,
+  });
+  console.log('Starting bot 2');
+  await expect(botRestart.start()).resolves.toBeTruthy();
+  console.log('Stopping bot 2');
+  await botRestart.stop();
+
+  // compare directories
+  for (const rotation of rotationsWithEarnings) {
+    const earningsFile = await bot.storage.earningsFile(rotation).get();
+    const earningsFile2 = await botRestart.storage.earningsFile(rotation).get();
+    console.info('Checking earnings for rotation', rotation);
+    expect(earningsFile).toBeTruthy();
+    expect(earningsFile2).toBeTruthy();
+    expect(earningsFile!).toEqual(earningsFile2!);
+  }
+
+  for (const cohort of cohorts) {
+    const biddingFile = await bot.storage.biddingFile(cohort).get();
+    const biddingFile2 = await botRestart.storage.biddingFile(cohort).get();
+    console.info('Checking bidding for cohort', cohort);
+    expect(biddingFile).toBeTruthy();
+    expect(biddingFile2).toBeTruthy();
+    expect(biddingFile!).toEqual(biddingFile2!);
+  }
 }, 180e3);

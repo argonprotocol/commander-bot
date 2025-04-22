@@ -6,7 +6,7 @@
   "main": "index.ts",
   "scripts": {
     "start": "bun src/index.ts",
-    "test": "bun test"
+    "test:local": "ARGON_PROJECT_ROOT=../mainchain bun test"
   },
   "type": "module",
   "dependencies": {
@@ -16,6 +16,7 @@
   "devDependencies": {
     "@argonprotocol/testing": "file:../mainchain/testing/nodejs",
     "@types/bun": "latest",
+    "prettier": "^3.5.3",
     "typescript": "^5.8.3"
   },
   "packageManager": "yarn@4.9.1"

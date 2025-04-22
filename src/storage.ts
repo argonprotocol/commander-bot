@@ -1,7 +1,7 @@
-import Path from "node:path";
-import { LRU } from "tiny-lru";
-import * as fs from "node:fs";
-import { JsonExt } from "@argonprotocol/mainchain";
+import Path from 'node:path';
+import { LRU } from 'tiny-lru';
+import * as fs from 'node:fs';
+import { JsonExt } from '@argonprotocol/mainchain';
 
 export interface ILastModified {
   lastModified?: Date;
@@ -23,7 +23,6 @@ export interface ICohortBiddingStats extends ILastModified {
   subaccounts: { isRebid: boolean; index: number; address: string }[];
   seats: number;
   totalArgonsBid: bigint;
-  bids: number;
   fees: bigint;
   maxBidPerSeat: bigint;
   argonotsPerSeat: bigint;
@@ -50,19 +49,20 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
 
   constructor(
     private path: string,
-    private defaults: Omit<T, "lastModified">
+    private defaults: Omit<T, 'lastModified'>,
   ) {}
 
-  public async mutate(mutateFn: (data: T) => void): Promise<void> {
+  public async mutate(mutateFn: (data: T) => boolean | void): Promise<void> {
     await this.load();
     if (!this.data) {
       this.data = structuredClone(this.defaults) as T;
     }
-    mutateFn(this.data!);
+    const result = mutateFn(this.data!);
+    if (result === false) return;
     this.data!.lastModified = new Date();
     // filter non properties
     this.data = Object.fromEntries(
-      Object.entries(this.data!).filter(([key]) => key in this.defaults)
+      Object.entries(this.data!).filter(([key]) => key in this.defaults),
     ) as T;
     await atomicWrite(this.path, JsonExt.stringify(this.data, 2));
   }
@@ -137,7 +137,6 @@ export class CohortStorage {
         lastBlock: 0,
         seats: 0,
         totalArgonsBid: 0n,
-        bids: 0,
         fees: 0n,
         maxBidPerSeat: 0n,
         argonotsPerSeat: 0n,

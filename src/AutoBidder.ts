@@ -1,10 +1,5 @@
-import {
-  type Accountset,
-  CohortBidder,
-  JsonExt,
-  MiningBids,
-} from "@argonprotocol/mainchain";
-import type { CohortStorage, ICohortBiddingStats } from "./storage.ts";
+import { type Accountset, CohortBidder, JsonExt, MiningBids } from '@argonprotocol/mainchain';
+import type { CohortStorage, ICohortBiddingStats } from './storage.ts';
 
 export interface IBiddingRules {
   minBid: bigint;
@@ -29,7 +24,7 @@ export class AutoBidder {
   constructor(
     readonly accountset: Accountset,
     readonly storage: CohortStorage,
-    private biddingRulesPath: string
+    private biddingRulesPath: string,
   ) {
     this.miningBids = new MiningBids(accountset.client);
     this.rulesFile = Bun.file(this.biddingRulesPath);
@@ -63,12 +58,12 @@ export class AutoBidder {
   }
 
   async createBiddingRules(cohortId: number): Promise<IBiddingRules> {
-    console.log("Getting bidding rules for cohort", cohortId);
+    console.log('Getting bidding rules for cohort', cohortId);
     return await this.rulesFile
       .text()
       .then(JsonExt.parse)
       .catch((err: Error) => {
-        console.error("Error reading bidding rules", err);
+        console.error('Error reading bidding rules', err);
         return {
           minBid: 0n,
           maxBid: 0n,
@@ -94,31 +89,29 @@ export class AutoBidder {
       hasStartingStats: !!startingStats,
       seatGoal: rules.maxSeats,
     });
-    let availability: ICohortBiddingStats["subaccounts"] | undefined;
-    if (startingStats && startingStats.bids > 0) {
-      availability = startingStats.subaccounts;
+    let subaccounts: ICohortBiddingStats['subaccounts'] | undefined;
+    if (startingStats && startingStats.subaccounts.length) {
+      subaccounts = startingStats.subaccounts;
     }
-    if (!availability) {
-      availability = await this.accountset.getAvailableMinerAccounts(
-        rules.maxSeats
-      );
+    if (!subaccounts) {
+      subaccounts = await this.accountset.getAvailableMinerAccounts(rules.maxSeats);
     }
 
-    const activeBidder = new CohortBidder(
-      this.accountset,
-      cohortId,
-      availability,
-      rules
-    );
-    if (startingStats) {
-      activeBidder.stats = startingStats;
-    }
+    const activeBidder = new CohortBidder(this.accountset, cohortId, subaccounts, rules);
     this.activeBidder = activeBidder;
     await activeBidder.start();
     if (!startingStats) {
-      await this.storeStats(cohortId, {
-        subaccounts: availability,
-        ...activeBidder.stats,
+      // only store the initial stats so we don't have to re-download the block
+      const startingStats = activeBidder.stats;
+      await this.storage.biddingFile(cohortId).mutate(x => {
+        Object.assign(x, {
+          cohortId,
+          subaccounts,
+          lastBlock: startingStats.lastBlock,
+          argonotsPerSeat: startingStats.argonotsPerSeat,
+          argonotUsdPrice: startingStats.argonotUsdPrice,
+          cohortArgonsPerBlock: startingStats.cohortArgonsPerBlock,
+        });
       });
     }
   }
@@ -128,21 +121,7 @@ export class AutoBidder {
     if (!bidder) return;
     this.activeBidder = undefined;
     const cohortId = bidder.cohortId;
-    const subaccounts = bidder.subaccounts;
     const stats = await bidder.stop();
-    console.log("Cohort bidding completed", { cohortId, ...stats });
-    await this.storeStats(cohortId, {
-      ...stats,
-      subaccounts,
-    });
-  }
-
-  private async storeStats(
-    cohortId: number,
-    stats: Partial<ICohortBiddingStats>
-  ): Promise<void> {
-    await this.storage.biddingFile(cohortId).mutate((x) => {
-      Object.assign(x, stats);
-    });
+    console.log('Cohort bidding completed', { cohortId, ...stats });
   }
 }

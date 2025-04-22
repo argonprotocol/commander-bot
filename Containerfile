@@ -31,4 +31,4 @@ COPY --from=prerelease /usr/src/app .
 EXPOSE 3000
 ENV PORT=3000
 # run the app
-ENTRYPOINT [ "bun", "index.ts" ]
+ENTRYPOINT [ "bun", "src/index.ts" ]

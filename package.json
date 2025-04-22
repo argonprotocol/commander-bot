@@ -1,7 +1,7 @@
 {
   "name": "@argonprotocol/commander-bot",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "An api for integration with commander",
   "main": "index.ts",
   "scripts": {
@@ -10,11 +10,11 @@
   },
   "type": "module",
   "dependencies": {
-    "@argonprotocol/mainchain": "file:../mainchain/client/nodejs",
+    "@argonprotocol/mainchain": "^1.1.0-rc.3",
     "tiny-lru": "^11.2.11"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "file:../mainchain/testing/nodejs",
+    "@argonprotocol/testing": "^1.1.0-rc.3",
     "@types/bun": "latest",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3"

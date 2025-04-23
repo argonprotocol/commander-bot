@@ -2,7 +2,7 @@ import { keyringFromFile, waitForLoad } from '@argonprotocol/mainchain';
 import { jsonExt, onExit, requireAll, requireEnv } from './utils.ts';
 import Bot from './Bot.ts';
 import express from 'express';
-import createBiddingRules from './createBiddingRules.js';
+import createBiddingRules from './bidding-calculator/index.ts';
 
 // wait for crypto wasm to be loaded
 await waitForLoad();

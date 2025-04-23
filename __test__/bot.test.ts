@@ -11,7 +11,7 @@ import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
-import * as BidingRules from '../src/createBiddingRules.ts';
+import * as BidingRules from '../src/bidding-calculator/index.ts';
 
 afterEach(teardown);
 afterAll(teardown);

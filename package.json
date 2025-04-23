@@ -1,7 +1,7 @@
 {
   "name": "@argonprotocol/commander-bot",
   "private": true,
-  "version": "0.0.1-rc2",
+  "version": "0.0.1-rc4",
   "description": "An api for integration with commander",
   "main": "index.ts",
   "scripts": {

@@ -1,15 +1,7 @@
 import { type Accountset, CohortBidder, MiningBids } from '@argonprotocol/mainchain';
 import type { CohortStorage, ICohortBiddingStats } from './storage.ts';
-import createBiddingRules from './createBiddingRules.js';
+import createBidderParams from './bidding-calculator/index.ts';
 
-export interface IBidderParams {
-  minBid: bigint;
-  maxBid: bigint;
-  maxBalance: bigint;
-  maxSeats: number;
-  bidIncrement: bigint;
-  bidDelay: number;
-}
 /**
  * Creates a bidding process. Between each cohort, it will ask the callback for parameters for the next cohort.
  * @param accountset
@@ -60,7 +52,7 @@ export class AutoBidder {
 
   private async onBiddingStart(cohortId: number) {
     if (this.activeBidder?.cohortId === cohortId) return;
-    const params = await createBiddingRules(
+    const params = await createBidderParams(
       cohortId,
       await this.accountset.client,
       this.biddingRulesPath,

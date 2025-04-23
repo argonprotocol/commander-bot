@@ -1,7 +1,7 @@
 import { type ArgonClient } from '@argonprotocol/mainchain';
-import type { IBidderParams } from './AutoBidder.js';
+import type { IBidderParams } from '../IBidderParams.ts';
 
-export default async function createBiddingRules(
+export default async function createBidderParams(
   cohortId: number,
   client: ArgonClient,
   rulesPath: string,

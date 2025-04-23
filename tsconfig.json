@@ -21,7 +21,6 @@
     // Some stricter flags
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "typeRoots": ["./node_modules/@types", "@types/bun"]
   },
   "include": ["src", "__test__"]
 }

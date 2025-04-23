@@ -1,19 +1,20 @@
-# use the official Bun image
-# see all versions at https://hub.docker.com/r/oven/bun/tags
-FROM oven/bun:1 AS base
+FROM node:20-slim AS base
 WORKDIR /usr/src/app
+RUN apt-get update && apt-get install -y curl \
+  && corepack enable && corepack prepare yarn@stable --activate
 
 # install dependencies into temp directory
 # this will cache them and speed up future builds
 FROM base AS install
 RUN mkdir -p /temp/dev
-COPY package.json bun.lock /temp/dev/
-RUN cd /temp/dev && bun install --frozen-lockfile
+COPY package.json yarn.lock .yarnrc* /temp/dev/
+RUN cd /temp/dev && yarn install --immutable
 
 # install with --production (exclude devDependencies)
 RUN mkdir -p /temp/prod
-COPY package.json bun.lock /temp/prod/
-RUN cd /temp/prod && bun install --frozen-lockfile --production
+COPY package.json yarn.lock .yarnrc* /temp/prod/
+ENV NODE_ENV=production
+RUN cd /temp/prod && yarn install --immutable-cache
 
 # copy node_modules from temp directory
 # then copy all (non-ignored) project files into the image
@@ -29,6 +30,4 @@ COPY --from=install /temp/prod/node_modules node_modules
 COPY --from=prerelease /usr/src/app .
 
 EXPOSE 3000
-ENV PORT=3000
-# run the app
-ENTRYPOINT [ "bun", "src/index.ts" ]
+ENTRYPOINT [ "yarn", "start" ]

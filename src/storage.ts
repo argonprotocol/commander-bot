@@ -40,8 +40,8 @@ export interface ISyncState extends ILastModified {
 
 async function atomicWrite(path: string, contents: string) {
   const tmp = `${path}.tmp`;
-  await Bun.write(tmp, contents);
-  fs.renameSync(tmp, path);
+  await fs.promises.writeFile(tmp, contents);
+  await fs.promises.rename(tmp, path);
 }
 
 export class JsonStore<T extends Record<string, any> & ILastModified> {
@@ -69,7 +69,7 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
 
   public async exists(): Promise<boolean> {
     try {
-      const stats = await Bun.file(this.path).stat();
+      const stats = await fs.promises.stat(this.path);
       return stats.isFile();
     } catch (e) {
       return false;
@@ -84,7 +84,7 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
   private async load(): Promise<void> {
     if (this.data === undefined) {
       try {
-        const data = await Bun.file(this.path).text().then(JsonExt.parse);
+        const data = await fs.promises.readFile(this.path, 'utf-8').then(JsonExt.parse);
         if (data.lastModified) {
           data.lastModified = new Date(data.lastModified);
         }
@@ -95,7 +95,11 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
 }
 
 export class CohortStorage {
-  constructor(private basedir: string) {}
+  constructor(private basedir: string) {
+    fs.mkdirSync(this.basedir, { recursive: true });
+    fs.mkdirSync(Path.join(this.basedir, 'earnings'), { recursive: true });
+    fs.mkdirSync(Path.join(this.basedir, 'bidding'), { recursive: true });
+  }
   private lruCache = new LRU<JsonStore<any>>(100);
 
   public syncStateFile(): JsonStore<ISyncState> {

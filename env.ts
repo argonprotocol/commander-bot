@@ -1,5 +1,5 @@
-declare module 'bun' {
-  interface Env {
+declare module 'process' {
+  interface ProcessEnv {
     PORT: string;
     KEYPAIR_PATH: string;
     KEYPAIR_PASSPHRASE?: string;

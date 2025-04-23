@@ -1,4 +1,4 @@
-import { JsonExt } from "@argonprotocol/mainchain";
+import express from 'express';
 
 export function onExit(fn: () => void | Promise<void>) {
   const handler = async () => {
@@ -6,16 +6,14 @@ export function onExit(fn: () => void | Promise<void>) {
     process.exit(0);
   };
 
-  process.once("SIGINT", handler);
-  process.once("SIGTERM", handler);
-  process.once("exit", () => fn());
+  process.once('SIGINT', handler);
+  process.once('SIGTERM', handler);
+  process.once('exit', () => fn());
 }
 
-export function requireEnv<K extends keyof (typeof Bun)["env"]>(
-  envVar: K
-): string {
-  if (!Bun.env[envVar]) throw new Error(`Bun.env.${envVar} is required`);
-  return Bun.env[envVar] as any;
+export function requireEnv<K extends keyof (typeof process)['env']>(envVar: K): string {
+  if (!process.env[envVar]) throw new Error(`process.env.${envVar} is required`);
+  return process.env[envVar] as any;
 }
 
 export function requireAll<T>(data: Partial<T>): T {
@@ -25,9 +23,23 @@ export function requireAll<T>(data: Partial<T>): T {
   return data as T;
 }
 
-export function jsonExt(data: any): Response {
-  const json = JsonExt.stringify(data, 2);
-  return new Response(json, {
-    headers: { "Content-Type": "application/json" },
-  });
+export function jsonExt(data: any, response: express.Response) {
+  const json = JSON.stringify(
+    data,
+    (_key, value) => {
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      if (typeof value === 'bigint') {
+        if (value > Number.MAX_SAFE_INTEGER) {
+          return value.toString();
+        } else {
+          return Number(value);
+        }
+      }
+      return value;
+    },
+    2,
+  );
+  response.status(200).type('application/json').send(json);
 }

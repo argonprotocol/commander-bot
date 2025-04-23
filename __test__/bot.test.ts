@@ -7,7 +7,7 @@ import {
   TestNotary,
 } from '@argonprotocol/testing';
 import { MiningRotations, mnemonicGenerate } from '@argonprotocol/mainchain';
-import { afterAll, afterEach, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
@@ -40,7 +40,7 @@ it('can autobid and store stats', async () => {
     keysMnemonic: mnemonicGenerate(),
   });
 
-  spyOn(BidingRules, 'default').mockImplementation(async () => {
+  vi.spyOn(BidingRules, 'default').mockImplementation(async () => {
     return {
       maxSeats: 10,
       bidDelay: 0,

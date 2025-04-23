@@ -2,7 +2,6 @@ import { keyringFromFile, waitForLoad } from '@argonprotocol/mainchain';
 import { jsonExt, onExit, requireAll, requireEnv } from './utils.ts';
 import Bot from './Bot.ts';
 import express from 'express';
-import createBiddingRules from './bidding-calculator/index.ts';
 
 // wait for crypto wasm to be loaded
 await waitForLoad();
@@ -55,6 +54,5 @@ const server = app.listen(process.env.PORT ?? 3000, () => {
 });
 onExit(() => new Promise<void>(resolve => server.close(() => resolve())));
 
-await createBiddingRules(1, await bot.accountset.client, process.env.BIDDING_RULES_PATH!);
 await bot.start();
 onExit(() => bot.stop());

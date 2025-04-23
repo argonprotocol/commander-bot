@@ -11,7 +11,7 @@ import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import Path from 'node:path';
 import Bot from '../src/Bot.ts';
-import * as BidingRules from '../src/bidding-calculator/index.ts';
+import * as BiddingCalculator from '../src/bidding-calculator/index.ts';
 
 afterEach(teardown);
 afterAll(teardown);
@@ -40,7 +40,7 @@ it('can autobid and store stats', async () => {
     keysMnemonic: mnemonicGenerate(),
   });
 
-  vi.spyOn(BidingRules, 'default').mockImplementation(async () => {
+  vi.spyOn(BiddingCalculator, 'createBidderParams').mockImplementation(async () => {
     return {
       maxSeats: 10,
       bidDelay: 0,

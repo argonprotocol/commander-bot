@@ -1,3 +1,4 @@
+import * as Fs from 'node:fs';
 import express from 'express';
 
 export function onExit(fn: () => void | Promise<void>) {
@@ -42,4 +43,12 @@ export function jsonExt(data: any, response: express.Response) {
     2,
   );
   response.status(200).type('application/json').send(json);
+}
+
+export function readJsonFileOrNull(path: string) {
+  try {
+    return JSON.parse(Fs.readFileSync(path, 'utf8'));
+  } catch (error) {
+    return null;
+  }
 }

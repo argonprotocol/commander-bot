@@ -229,7 +229,9 @@ export class BlockSync {
   private getRpcClient(headerOrNumber: Header | number): ArgonClient {
     let headerNumber =
       typeof headerOrNumber === 'number' ? headerOrNumber : headerOrNumber.number.toNumber();
-    if (headerNumber < this.latestFinalizedHeader.number.toNumber() - 256) {
+    // TODO: this is currently broken when using fast sync, so setting to 0
+    const SYNCHED_STATE_DEPTH = 0;
+    if (headerNumber < this.latestFinalizedHeader.number.toNumber() - SYNCHED_STATE_DEPTH) {
       return this.archiveClient;
     }
     return this.localClient;

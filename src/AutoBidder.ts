@@ -65,11 +65,17 @@ export class AutoBidder {
       hasStartingStats: !!startingStats,
       seatGoal: params.maxSeats,
     });
-    let subaccounts: ICohortBiddingStats['subaccounts'] | undefined;
+    
+    const subaccounts: ICohortBiddingStats['subaccounts'] = [];
     if (startingStats && startingStats.subaccounts.length) {
-      subaccounts = startingStats.subaccounts;
+      subaccounts.push(...startingStats.subaccounts);
     }
-    subaccounts ??= await this.accountset.getAvailableMinerAccounts(params.maxSeats);
+    // check if we need to add more seats
+    if (subaccounts.length < params.maxSeats) {
+      const neededSeats = params.maxSeats - subaccounts.length;
+      const added = await this.accountset.getAvailableMinerAccounts(neededSeats);
+      subaccounts.push(...added);
+    }
 
     const activeBidder = new CohortBidder(this.accountset, cohortId, subaccounts, params);
     this.activeBidder = activeBidder;

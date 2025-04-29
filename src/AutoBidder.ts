@@ -93,6 +93,9 @@ export class AutoBidder {
           cohortArgonsPerBlock: startingStats.cohortArgonsPerBlock,
         });
       });
+      await this.storage.syncStateFile().mutate(x => {
+        x.biddingsLastUpdated = new Date();
+      });
     }
   }
 

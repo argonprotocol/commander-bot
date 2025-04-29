@@ -67,6 +67,8 @@ export class BlockSync {
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
       firstRotation: state?.firstRotation ?? 0,
       currentRotation: state?.currentRotation ?? 0,
+      biddingsLastUpdated: state?.biddingsLastUpdated?.toISOString(),
+      earningsLastUpdated: state?.earningsLastUpdated?.toISOString(),
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
     };
@@ -216,6 +218,7 @@ export class BlockSync {
       if (x.lastBlock >= header.number.toNumber()) {
         return false;
       }
+      x.earningsLastUpdated = new Date();
       x.lastBlock = header.number.toNumber();
       x.currentRotation = rotation;
       x.lastBlockByRotation[rotation] = header.number.toNumber();
@@ -320,6 +323,9 @@ export class BlockSync {
               });
             }
           }
+        });
+        await this.statusFile.mutate(x => {
+          x.biddingsLastUpdated = new Date();
         });
       }
     }

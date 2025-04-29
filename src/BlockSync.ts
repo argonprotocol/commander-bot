@@ -62,13 +62,19 @@ export class BlockSync {
 
   async status() {
     const state = await this.statusFile.get();
+    const biddingsLastUpdated = state?.biddingsLastUpdated?.toISOString()
+      ? new Date(state.biddingsLastUpdated.toISOString())
+      : '';
+    const earningsLastUpdated = state?.earningsLastUpdated?.toISOString()
+      ? new Date(state.earningsLastUpdated.toISOString())
+      : '';
     return {
+      biddingsLastUpdated,
+      earningsLastUpdated,
       latestSynched: state?.lastBlock ?? 0,
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
       firstRotation: state?.firstRotation ?? 0,
       currentRotation: state?.currentRotation ?? 0,
-      biddingsLastUpdated: state?.biddingsLastUpdated?.toISOString() || '',
-      earningsLastUpdated: state?.earningsLastUpdated?.toISOString() || '',
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
     };

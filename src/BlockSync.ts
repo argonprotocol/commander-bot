@@ -66,6 +66,7 @@ export class BlockSync {
       latestSynched: state?.lastBlock ?? 0,
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
       firstRotation: state?.firstRotation ?? 0,
+      currentRotation: state?.currentRotation ?? 0,
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
     };
@@ -216,6 +217,7 @@ export class BlockSync {
         return false;
       }
       x.lastBlock = header.number.toNumber();
+      x.currentRotation = rotation;
       x.lastBlockByRotation[rotation] = header.number.toNumber();
     });
     this.lastProcessed = { blockNumber: header.number.toNumber(), rotation, date: new Date() };

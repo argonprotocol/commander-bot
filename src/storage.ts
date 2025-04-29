@@ -33,6 +33,7 @@ export interface ICohortBiddingStats extends ILastModified {
 export interface ISyncState extends ILastModified {
   lastBlock: number;
   firstRotation: number;
+  currentRotation: number;
   lastBlockByRotation: {
     [rotationId: number]: number;
   };
@@ -109,6 +110,7 @@ export class CohortStorage {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
         lastBlock: 0,
         firstRotation: 0,
+        currentRotation: 0,
         lastBlockByRotation: {},
       });
       this.lruCache.set(key, entry);

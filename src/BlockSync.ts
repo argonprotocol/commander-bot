@@ -67,8 +67,8 @@ export class BlockSync {
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
       firstRotation: state?.firstRotation ?? 0,
       currentRotation: state?.currentRotation ?? 0,
-      biddingsLastUpdated: state?.biddingsLastUpdated?.toISOString(),
-      earningsLastUpdated: state?.earningsLastUpdated?.toISOString(),
+      biddingsLastUpdated: state?.biddingsLastUpdated?.toISOString() || '',
+      earningsLastUpdated: state?.earningsLastUpdated?.toISOString() || '',
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
     };

@@ -102,7 +102,7 @@ export class CohortStorage {
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'earnings'), { recursive: true });
-    fs.mkdirSync(Path.join(this.basedir, 'bidding'), { recursive: true });
+    fs.mkdirSync(Path.join(this.basedir, 'biddings'), { recursive: true });
   }
   private lruCache = new LRU<JsonStore<any>>(100);
 

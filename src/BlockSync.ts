@@ -62,12 +62,8 @@ export class BlockSync {
 
   async status() {
     const state = await this.statusFile.get();
-    const biddingsLastUpdated = state?.biddingsLastUpdated?.toISOString()
-      ? new Date(state.biddingsLastUpdated.toISOString())
-      : '';
-    const earningsLastUpdated = state?.earningsLastUpdated?.toISOString()
-      ? new Date(state.earningsLastUpdated.toISOString())
-      : '';
+    const biddingsLastUpdated = state?.biddingsLastUpdated ? new Date(state.biddingsLastUpdated.toISOString()) : '';
+    const earningsLastUpdated = state?.earningsLastUpdated ? new Date(state.earningsLastUpdated.toISOString()) : '';
     return {
       biddingsLastUpdated,
       earningsLastUpdated,

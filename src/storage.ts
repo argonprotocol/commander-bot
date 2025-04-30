@@ -36,6 +36,7 @@ export interface ISyncState extends ILastModified {
   currentRotation: number;
   biddingsLastUpdated: Date;
   earningsLastUpdated: Date;
+  hasWonSeats: boolean;
   lastBlockByRotation: {
     [rotationId: number]: number;
   };
@@ -116,6 +117,7 @@ export class CohortStorage {
         lastBlockByRotation: {},
         biddingsLastUpdated: new Date(),
         earningsLastUpdated: new Date(),
+        hasWonSeats: false,
       });
       this.lruCache.set(key, entry);
     }

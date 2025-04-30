@@ -71,6 +71,7 @@ export class BlockSync {
     return {
       biddingsLastUpdated,
       earningsLastUpdated,
+      hasWonSeats: state?.hasWonSeats ?? false,
       latestSynched: state?.lastBlock ?? 0,
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
       firstRotation: state?.firstRotation ?? 0,
@@ -298,6 +299,7 @@ export class BlockSync {
         );
       }
       if (client.events.miningSlot.NewMiners.is(event)) {
+        let hasWonSeats = false;
         const [_startIndex, newMiners, _released, cohortId] = event.data;
         await this.storage.biddingFile(cohortId.toNumber()).mutate(x => {
           if (x.lastBlock >= blockNumber) {
@@ -317,6 +319,7 @@ export class BlockSync {
             const bidAmount = miner.bid.toBigInt();
             const ourMiner = this.accountset.subAccountsByAddress[address];
             if (ourMiner) {
+              hasWonSeats = true;
               x.seats += 1;
               x.totalArgonsBid += bidAmount;
               if (bidAmount > x.maxBidPerSeat) {
@@ -332,6 +335,9 @@ export class BlockSync {
         });
         await this.statusFile.mutate(x => {
           x.biddingsLastUpdated = new Date();
+          if (hasWonSeats) {
+            x.hasWonSeats = true;
+          }
         });
       }
     }

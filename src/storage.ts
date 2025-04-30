@@ -139,7 +139,7 @@ export class CohortStorage {
   }
 
   public biddingFile(cohortId: number): JsonStore<ICohortBiddingStats> {
-    const key = `bidding/cohort-${cohortId}.json`;
+    const key = `biddings/cohort-${cohortId}.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
       entry = new JsonStore<ICohortBiddingStats>(Path.join(this.basedir, key), {

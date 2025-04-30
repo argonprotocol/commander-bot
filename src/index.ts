@@ -38,7 +38,7 @@ app.get('/earnings/:rotationId', async (req, res) => {
   const data = await bot.storage.earningsFile(Number(rotationId)).get();
   jsonExt(data, res);
 });
-app.get('/bidding/:cohortId', async (req, res) => {
+app.get('/biddings/:cohortId', async (req, res) => {
   const cohortId = req.params.cohortId;
   const data = await bot.storage.biddingFile(Number(cohortId)).get();
   jsonExt(data, res);

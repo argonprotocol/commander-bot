@@ -94,7 +94,7 @@ export class AutoBidder {
         });
       });
       await this.storage.syncStateFile().mutate(x => {
-        x.biddingsLastUpdated = new Date();
+        x.biddingsLastUpdatedAt = new Date().toISOString();
       });
     }
   }

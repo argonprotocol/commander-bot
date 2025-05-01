@@ -10,6 +10,8 @@ export interface IRotationEarnings extends ILastModified {
   lastBlock: number;
   byCohortId: {
     [cohortId: number]: {
+      lastBlockMinedAt: string;
+      blocksMined: number;
       argonsMined: bigint;
       argonsMinted: bigint;
       argonotsMined: bigint;
@@ -34,8 +36,8 @@ export interface ISyncState extends ILastModified {
   lastBlock: number;
   firstRotation: number;
   currentRotation: number;
-  biddingsLastUpdated: Date;
-  earningsLastUpdated: Date;
+  biddingsLastUpdatedAt: string;
+  earningsLastUpdatedAt: string;
   hasWonSeats: boolean;
   lastBlockByRotation: {
     [rotationId: number]: number;
@@ -115,8 +117,8 @@ export class CohortStorage {
         firstRotation: 0,
         currentRotation: 0,
         lastBlockByRotation: {},
-        biddingsLastUpdated: new Date(),
-        earningsLastUpdated: new Date(),
+        biddingsLastUpdatedAt: new Date().toISOString(),
+        earningsLastUpdatedAt: new Date().toISOString(),
         hasWonSeats: false,
       });
       this.lruCache.set(key, entry);

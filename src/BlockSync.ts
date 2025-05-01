@@ -18,6 +18,7 @@ import {
 import { type CohortStorage, type ISyncState, JsonStore } from './storage.ts';
 
 const defaultCohort = {
+  blocksMined: 0,
   argonotsMined: 0n,
   argonsMined: 0n,
   argonsMinted: 0n,
@@ -62,11 +63,9 @@ export class BlockSync {
 
   async status() {
     const state = await this.statusFile.get();
-    const biddingsLastUpdated = state?.biddingsLastUpdated ? new Date(state.biddingsLastUpdated).toISOString() : '';
-    const earningsLastUpdated = state?.earningsLastUpdated ? new Date(state.earningsLastUpdated).toISOString() : '';
     return {
-      biddingsLastUpdated,
-      earningsLastUpdated,
+      biddingsLastUpdatedAt: state?.biddingsLastUpdatedAt ?? '',
+      earningsLastUpdatedAt: state?.earningsLastUpdatedAt ?? '',
       hasWonSeats: state?.hasWonSeats ?? false,
       latestSynched: state?.lastBlock ?? 0,
       latestFinalized: this.latestFinalizedHeader.number.toNumber(),
@@ -197,7 +196,6 @@ export class BlockSync {
         return false;
       }
       x.lastBlock = header.number.toNumber();
-      const earnedByCohort: any = {};
       for (const [id, earnings] of Object.entries(cohortIds)) {
         const cohortId = Number(id);
         const { argonsMinted, argonotsMined, argonsMined } = earnings;
@@ -205,16 +203,16 @@ export class BlockSync {
         x.byCohortId[cohortId].argonotsMined += argonotsMined;
         x.byCohortId[cohortId].argonsMined += argonsMined;
         x.byCohortId[cohortId].argonsMinted += argonsMinted;
-        earnedByCohort[cohortId] ??= structuredClone(defaultCohort);
-        earnedByCohort[cohortId].argonotsMined += argonotsMined;
-        earnedByCohort[cohortId].argonsMined += argonsMined;
-        earnedByCohort[cohortId].argonsMinted += argonsMinted;
+      }
+
+      if (!!this.accountset.subAccountsByAddress[author]) {
+        x.byCohortId[rotation].blocksMined += 1;
+        x.byCohortId[rotation].lastBlockMinedAt = new Date().toISOString();
       }
 
       console.log('Processed finalized block', {
         rotation,
         blockNumber: header.number.toNumber(),
-        earnedByCohort,
       });
     });
     await this.statusFile.mutate(x => {
@@ -330,7 +328,7 @@ export class BlockSync {
           }
         });
         await this.statusFile.mutate(x => {
-          x.biddingsLastUpdated = new Date();
+          x.biddingsLastUpdatedAt = new Date().toISOString();
           if (hasWonSeats) {
             x.hasWonSeats = true;
           }

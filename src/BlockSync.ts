@@ -204,7 +204,7 @@ export class BlockSync {
         x.byCohortId[cohortId].argonotsMined += argonotsMined;
         x.byCohortId[cohortId].argonsMined += argonsMined;
         x.byCohortId[cohortId].argonsMinted += argonsMinted;
-        if (x.argonsMined > 0n) {
+        if (argonsMined > 0n) {
           x.byCohortId[cohortId].blocksMined += 1;
           x.byCohortId[cohortId].lastBlockMinedAt = new Date().toISOString();
         }

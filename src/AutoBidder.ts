@@ -87,7 +87,7 @@ export class AutoBidder {
         Object.assign(x, {
           cohortId,
           subaccounts,
-          lastBlock: startingStats.lastBlock,
+          lastBlockNumber: startingStats.lastBlock,
           argonotsPerSeat: startingStats.argonotsPerSeat,
           argonotUsdPrice: startingStats.argonotUsdPrice,
           cohortArgonsPerBlock: startingStats.cohortArgonsPerBlock,

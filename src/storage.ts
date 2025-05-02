@@ -7,7 +7,7 @@ export interface ILastModified {
   lastModified?: Date;
 }
 export interface IRotationEarnings extends ILastModified {
-  lastBlock: number;
+  lastBlockNumber: number;
   byCohortId: {
     [cohortId: number]: {
       lastBlockMinedAt: string;
@@ -21,7 +21,7 @@ export interface IRotationEarnings extends ILastModified {
 
 export interface ICohortBiddingStats extends ILastModified {
   cohortId: number;
-  lastBlock: number;
+  lastBlockNumber: number;
   subaccounts: { isRebid: boolean; index: number; address: string }[];
   seats: number;
   totalArgonsBid: bigint;
@@ -33,13 +33,13 @@ export interface ICohortBiddingStats extends ILastModified {
 }
 
 export interface ISyncState extends ILastModified {
-  lastBlock: number;
-  firstRotation: number;
-  currentRotation: number;
+  lastBlockNumber: number;
+  firstRotationId: number;
+  currentRotationId: number;
   biddingsLastUpdatedAt: string;
   earningsLastUpdatedAt: string;
   hasWonSeats: boolean;
-  lastBlockByRotation: {
+  lastBlockNumberByRotationId: {
     [rotationId: number]: number;
   };
 }
@@ -113,10 +113,10 @@ export class CohortStorage {
     let entry = this.lruCache.get(key);
     if (!entry) {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
-        lastBlock: 0,
-        firstRotation: 0,
-        currentRotation: 0,
-        lastBlockByRotation: {},
+        lastBlockNumber: 0,
+        firstRotationId: 0,
+        currentRotationId: 0,
+        lastBlockNumberByRotationId: {},
         biddingsLastUpdatedAt: new Date().toISOString(),
         earningsLastUpdatedAt: new Date().toISOString(),
         hasWonSeats: false,
@@ -134,7 +134,7 @@ export class CohortStorage {
     let entry = this.lruCache.get(key);
     if (!entry) {
       entry = new JsonStore<IRotationEarnings>(Path.join(this.basedir, key), {
-        lastBlock: 0,
+        lastBlockNumber: 0,
         byCohortId: {},
       });
       this.lruCache.set(key, entry);
@@ -148,7 +148,7 @@ export class CohortStorage {
     if (!entry) {
       entry = new JsonStore<ICohortBiddingStats>(Path.join(this.basedir, key), {
         cohortId,
-        lastBlock: 0,
+        lastBlockNumber: 0,
         seats: 0,
         totalArgonsBid: 0n,
         fees: 0n,

@@ -26,7 +26,7 @@ const defaultCohort = {
 };
 
 export interface ILastProcessed {
-  rotation: number;
+  rotationId: number;
   date: Date;
   blockNumber: number;
 }
@@ -68,10 +68,10 @@ export class BlockSync {
       biddingsLastUpdatedAt: state?.biddingsLastUpdatedAt ?? '',
       earningsLastUpdatedAt: state?.earningsLastUpdatedAt ?? '',
       hasWonSeats: state?.hasWonSeats ?? false,
-      latestSynched: state?.lastBlock ?? 0,
-      latestFinalized: this.latestFinalizedHeader.number.toNumber(),
-      firstRotation: state?.firstRotation ?? 0,
-      currentRotation: state?.currentRotation ?? 0,
+      latestSynchedBlockNumber: state?.lastBlockNumber ?? 0,
+      latestFinalizedBlockNumber: this.latestFinalizedHeader.number.toNumber(),
+      firstRotationId: state?.firstRotationId ?? 0,
+      currentRotationId: state?.currentRotationId ?? 0,
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
     };
@@ -105,8 +105,8 @@ export class BlockSync {
     let header = this.latestFinalizedHeader;
     // plug any gaps in the sync state
     while (
-      header.number.toNumber() > state.lastBlock + 1 &&
-      (await this.getRotation(header)) >= state.firstRotation
+      header.number.toNumber() > state.lastBlockNumber + 1 &&
+      (await this.getRotation(header)) >= state.firstRotationId
     ) {
       this.queue.unshift(header);
       header = await this.getParentHeader(header);
@@ -149,7 +149,7 @@ export class BlockSync {
       // plug any gaps in the sync state
       const state = (await this.statusFile.get())!;
       let first = this.queue.at(0)!;
-      while (first.number.toNumber() > state.lastBlock + 1) {
+      while (first.number.toNumber() > state.lastBlockNumber + 1) {
         first = await this.getParentHeader(first);
         this.queue.unshift(first);
       }
@@ -171,7 +171,7 @@ export class BlockSync {
   async processHeader(header: Header) {
     const author = getAuthorFromHeader(this.localClient, header);
     const tick = getTickFromHeader(this.localClient, header);
-    const rotation = await this.getRotation(header);
+    const rotationId = await this.getRotation(header);
 
     if (!tick || !author) {
       console.warn('No tick or author found for header', header.number.toNumber());
@@ -188,15 +188,15 @@ export class BlockSync {
     );
 
     await this.syncBidding(header, events);
-    await this.storage.earningsFile(rotation).mutate(x => {
-      if (x.lastBlock >= header.number.toNumber()) {
+    await this.storage.earningsFile(rotationId).mutate(x => {
+      if (x.lastBlockNumber >= header.number.toNumber()) {
         console.warn('Already processed block', {
-          lastStored: x.lastBlock,
+          lastStored: x.lastBlockNumber,
           blockNumber: header.number.toNumber(),
         });
         return false;
       }
-      x.lastBlock = header.number.toNumber();
+      x.lastBlockNumber = header.number.toNumber();
       for (const [id, earnings] of Object.entries(cohortIds)) {
         const cohortId = Number(id);
         const { argonsMinted, argonotsMined, argonsMined } = earnings;
@@ -211,20 +211,20 @@ export class BlockSync {
       }
 
       console.log('Processed finalized block', {
-        rotation,
+        rotationId,
         blockNumber: header.number.toNumber(),
       });
     });
     await this.statusFile.mutate(x => {
-      if (x.lastBlock >= header.number.toNumber()) {
+      if (x.lastBlockNumber >= header.number.toNumber()) {
         return false;
       }
       x.earningsLastUpdatedAt = new Date().toISOString();
-      x.lastBlock = header.number.toNumber();
-      x.currentRotation = rotation;
-      x.lastBlockByRotation[rotation] = header.number.toNumber();
+      x.lastBlockNumber = header.number.toNumber();
+      x.currentRotationId = rotationId;
+      x.lastBlockNumberByRotationId[rotationId] = header.number.toNumber();
     });
-    this.lastProcessed = { blockNumber: header.number.toNumber(), rotation, date: new Date() };
+    this.lastProcessed = { blockNumber: header.number.toNumber(), rotationId, date: new Date() };
     this.didProcessFinalizedBlock?.(this.lastProcessed);
   }
 
@@ -245,11 +245,11 @@ export class BlockSync {
 
   private async setFirstRotationIfNeeded() {
     const state = await this.statusFile.get();
-    if (state && state.firstRotation > 0) return;
-    const rotation =
+    if (state && state.firstRotationId > 0) return;
+    const rotationId =
       this.oldestRotationToSync ?? (await this.getRotation(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
-      x.firstRotation = rotation;
+      x.firstRotationId = rotationId;
     });
   }
 
@@ -296,9 +296,9 @@ export class BlockSync {
         let hasWonSeats = false;
         const [_startIndex, newMiners, _released, cohortId] = event.data;
         await this.storage.biddingsFile(cohortId.toNumber()).mutate(x => {
-          if (x.lastBlock >= blockNumber) {
+          if (x.lastBlockNumber >= blockNumber) {
             console.warn('Already processed cohort block', {
-              lastStored: x.lastBlock,
+              lastStored: x.lastBlockNumber,
               cohortId: cohortId.toNumber(),
               blockNumber: blockNumber,
             });
@@ -307,7 +307,7 @@ export class BlockSync {
           x.seats = 0;
           x.totalArgonsBid = 0n;
           x.subaccounts = [];
-          x.lastBlock = blockNumber;
+          x.lastBlockNumber = blockNumber;
           for (const miner of newMiners) {
             const address = miner.accountId.toHuman();
             const bidAmount = miner.bid.toBigInt();
@@ -353,15 +353,15 @@ export class BlockSync {
     const biddingsStats = await biddingsFile.get();
     if (biddingsStats) {
       await biddingsFile.mutate(x => {
-        if (x.lastBlock >= blockNumber) {
+        if (x.lastBlockNumber >= blockNumber) {
           console.warn('Already processed block', {
-            lastStored: x.lastBlock,
+            lastStored: x.lastBlockNumber,
             blockNumber: blockNumber,
           });
           return false;
         }
         x.fees += miningFee;
-        x.lastBlock = blockNumber;
+        x.lastBlockNumber = blockNumber;
       });
       // don't back fill
       return;
@@ -369,7 +369,7 @@ export class BlockSync {
 
     console.log('Back-filling stats for bidding cohort', {
       cohortId: biddingCohort,
-      blockNumber,
+      blockNumber: blockNumber,
     });
     const decoded = await getExtrinsic();
     const subaccounts: {
@@ -406,7 +406,7 @@ export class BlockSync {
     }
     console.info('Bids found for cohort', {
       biddingCohort,
-      blockNumber: blockNumber,
+      blockNumber,
       fees: miningFee,
       bids: subaccounts.length,
       subaccounts,
@@ -417,7 +417,7 @@ export class BlockSync {
         ...defaultStats,
         fees: miningFee,
         subaccounts,
-        lastBlock: blockNumber,
+        blockNumber,
       });
     });
   }

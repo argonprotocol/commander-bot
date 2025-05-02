@@ -60,7 +60,7 @@ export class AutoBidder {
       biddingRules,
     );
     if (params.maxSeats === 0) return;
-    const startingStats = await this.storage.biddingFile(cohortId).get();
+    const startingStats = await this.storage.biddingsFile(cohortId).get();
     console.log(`Cohort ${cohortId} started bidding`, {
       hasStartingStats: !!startingStats,
       seatGoal: params.maxSeats,
@@ -83,7 +83,7 @@ export class AutoBidder {
     if (!startingStats) {
       // only store the initial stats so we don't have to re-download the block
       const startingStats = activeBidder.stats;
-      await this.storage.biddingFile(cohortId).mutate(x => {
+      await this.storage.biddingsFile(cohortId).mutate(x => {
         Object.assign(x, {
           cohortId,
           subaccounts,

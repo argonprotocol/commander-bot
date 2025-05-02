@@ -89,7 +89,7 @@ it('can autobid and store stats', async () => {
   console.log(`Rotations with earnings: ${[...rotationsWithEarnings]}`);
   expect(rotationsWithEarnings.size).toBeGreaterThan(0);
 
-  const cohort1Stats = await bot.storage.biddingFile(1).get();
+  const cohort1Stats = await bot.storage.biddingsFile(1).get();
   expect(cohort1Stats).toBeTruthy();
   expect(cohort1Stats?.argonotsPerSeat).toBeGreaterThanOrEqual(10000);
   expect(cohort1Stats?.maxBidPerSeat).toBeGreaterThan(0);
@@ -162,11 +162,11 @@ it('can autobid and store stats', async () => {
   }
 
   for (const cohort of cohorts) {
-    const biddingFile = await bot.storage.biddingFile(cohort).get();
-    const biddingFile2 = await botRestart.storage.biddingFile(cohort).get();
+    const biddingsFile = await bot.storage.biddingsFile(cohort).get();
+    const biddingsFile2 = await botRestart.storage.biddingsFile(cohort).get();
     console.info('Checking bidding for cohort', cohort);
-    expect(biddingFile).toBeTruthy();
-    expect(biddingFile2).toBeTruthy();
-    expect(biddingFile!).toEqual(biddingFile2!);
+    expect(biddingsFile).toBeTruthy();
+    expect(biddingsFile2).toBeTruthy();
+    expect(biddingsFile!).toEqual(biddingsFile2!);
   }
 }, 180e3);

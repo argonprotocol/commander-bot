@@ -40,7 +40,7 @@ app.get('/earnings/:rotationId', async (req, res) => {
 });
 app.get('/biddings/:cohortId', async (req, res) => {
   const cohortId = req.params.cohortId;
-  const data = await bot.storage.biddingFile(Number(cohortId)).get();
+  const data = await bot.storage.biddingsFile(Number(cohortId)).get();
   jsonExt(data, res);
 });
 app.post('/restart-bidder', async (_req, res) => {

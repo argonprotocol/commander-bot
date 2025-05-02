@@ -295,7 +295,7 @@ export class BlockSync {
       if (client.events.miningSlot.NewMiners.is(event)) {
         let hasWonSeats = false;
         const [_startIndex, newMiners, _released, cohortId] = event.data;
-        await this.storage.biddingFile(cohortId.toNumber()).mutate(x => {
+        await this.storage.biddingsFile(cohortId.toNumber()).mutate(x => {
           if (x.lastBlock >= blockNumber) {
             console.warn('Already processed cohort block', {
               lastStored: x.lastBlock,
@@ -349,10 +349,10 @@ export class BlockSync {
     const miningFee = await this.hasMiningFee(client, event, extrinsicEvents);
     if (miningFee === 0n) return;
     const api = await client.at(header.hash);
-    const biddingFile = this.storage.biddingFile(biddingCohort);
-    const biddingStats = await biddingFile.get();
-    if (biddingStats) {
-      await biddingFile.mutate(x => {
+    const biddingsFile = this.storage.biddingsFile(biddingCohort);
+    const biddingsStats = await biddingsFile.get();
+    if (biddingsStats) {
+      await biddingsFile.mutate(x => {
         if (x.lastBlock >= blockNumber) {
           console.warn('Already processed block', {
             lastStored: x.lastBlock,
@@ -412,7 +412,7 @@ export class BlockSync {
       subaccounts,
     });
     const defaultStats = await CohortBidder.getStartingData(api);
-    await biddingFile.mutate(x => {
+    await biddingsFile.mutate(x => {
       Object.assign(x, {
         ...defaultStats,
         fees: miningFee,

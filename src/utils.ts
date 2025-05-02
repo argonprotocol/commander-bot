@@ -28,15 +28,8 @@ export function jsonExt(data: any, response: express.Response) {
   const json = JSON.stringify(
     data,
     (_key, value) => {
-      if (value instanceof Date) {
-        return value.toISOString();
-      }
       if (typeof value === 'bigint') {
-        if (value > Number.MAX_SAFE_INTEGER) {
-          return value.toString();
-        } else {
-          return Number(value);
-        }
+        return `${value}n`;
       }
       return value;
     },

@@ -53,7 +53,7 @@ it('can autobid and store stats', async () => {
 
   await expect(bot.start()).resolves.toBeTruthy();
   const status = await bot.status();
-  expect(status.latestSynchedBlockNumber).toBeGreaterThanOrEqual(status.latestFinalizedBlockNumber);
+  expect(status.lastSynchedBlockNumber).toBeGreaterThanOrEqual(status.lastFinalizedBlockNumber);
   console.log(status);
   // wait for the first rotation
   await new Promise(async resolve => {
@@ -65,14 +65,14 @@ it('can autobid and store stats', async () => {
     });
   });
   let voteBlocks = 0;
-  let latestFinalizedBlockNumber = 0;
+  let lastFinalizedBlockNumber = 0;
   const rotationsWithEarnings = new Set<number>();
   // wait for first finalized vote block
   await new Promise(async resolve => {
     const unsubscribe = await client.rpc.chain.subscribeFinalizedHeads(async x => {
       const api = await client.at(x.hash);
       const isVoteBlock = await api.query.blockSeal.isBlockFromVoteSeal().then(x => x.isTrue);
-      latestFinalizedBlockNumber = x.number.toNumber();
+      lastFinalizedBlockNumber = x.number.toNumber();
       if (isVoteBlock) {
         console.log(`Block ${x.number} is vote block`);
         const rotation = await new MiningRotations().getForHeader(client, x);
@@ -100,7 +100,7 @@ it('can autobid and store stats', async () => {
   while (true) {
     await new Promise(resolve => setTimeout(resolve, 100));
     const status = await bot.status();
-    if (status.latestSynchedBlockNumber >= latestFinalizedBlockNumber) break;
+    if (status.lastSynchedBlockNumber >= lastFinalizedBlockNumber) break;
   }
 
   const cohorts = new Set<number>();

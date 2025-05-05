@@ -72,7 +72,7 @@ export class AutoBidder {
       const miningAccounts = await this.accountset.loadRegisteredMiners(
         await this.accountset.client,
       );
-      for (const subaccount of startingStats.subaccounts) {
+      for (const subaccount of bidsFileData.subaccounts) {
         const account = miningAccounts.find(x => x.address === subaccount.address);
         if (account) {
           subaccounts.push({

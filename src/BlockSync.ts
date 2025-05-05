@@ -114,15 +114,22 @@ export class BlockSync {
 
     const state = (await this.statusFile.get())!;
 
-    let header = this.latestFinalizedHeader;
     // plug any gaps in the sync state
-    while (
-      header.number.toNumber() > state.lastBlockNumber + 1 &&
-      (await this.getCurrentFrameId(header)) >= state.oldestFrameId
+    let header = this.latestFinalizedHeader;
+    let headerBlockNumber = header.number.toNumber();
+    let headerFrameId = await this.getCurrentFrameId(header);
+    
+    while ( 
+      headerBlockNumber > state.lastBlockNumber + 1 &&
+      headerFrameId >= state.oldestFrameId
     ) {
+      console.log(`Queuing frame ${headerFrameId} block ${headerBlockNumber} `);
       this.queue.unshift(header);
       header = await this.getParentHeader(header);
+      headerBlockNumber = header.number.toNumber();
+      headerFrameId = await this.getCurrentFrameId(header);
     }
+
     console.log('Sync starting', {
       ...state,
       queue: `${this.queue.at(0)?.number.toNumber()}..${this.queue.at(-1)?.number.toNumber()}`,
@@ -385,6 +392,10 @@ export class BlockSync {
             const address = miner.accountId.toHuman();
             const argonsBid = miner.bid.toBigInt();
             const ourMiner = this.accountset.subAccountsByAddress[address];
+            
+            if (!miner.bidAtTick) {
+              console.warn('No bid at tick for miner', miner);
+            }
             
             if (ourMiner) {
               hasWonSeats = true;

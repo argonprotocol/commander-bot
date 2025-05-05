@@ -22,7 +22,12 @@ export interface IRotationEarnings extends ILastModified {
 export interface ICohortBiddingStats extends ILastModified {
   cohortId: number;
   lastBlockNumber: number;
-  subaccounts: { isRebid: boolean; index: number; address: string }[];
+  subaccounts: {
+    subaccountIndex: number;
+    address: string;
+    bidPlace?: number;
+    lastBidAtTick?: number;
+  }[];
   seats: number;
   totalArgonsBid: bigint;
   fees: bigint;
@@ -58,19 +63,22 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
     private defaults: Omit<T, 'lastModified'>,
   ) {}
 
-  public async mutate(mutateFn: (data: T) => boolean | void): Promise<void> {
+  public async mutate(
+    mutateFn: (data: T) => boolean | void | Promise<boolean | void>,
+  ): Promise<boolean> {
     await this.load();
     if (!this.data) {
       this.data = structuredClone(this.defaults) as T;
     }
-    const result = mutateFn(this.data!);
-    if (result === false) return;
+    const result = await mutateFn(this.data!);
+    if (result === false) return false;
     this.data!.lastModified = new Date();
     // filter non properties
     this.data = Object.fromEntries(
       Object.entries(this.data!).filter(([key]) => key in this.defaults),
     ) as T;
     await atomicWrite(this.path, JsonExt.stringify(this.data, 2));
+    return true;
   }
 
   public async exists(): Promise<boolean> {

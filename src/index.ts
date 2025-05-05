@@ -7,16 +7,16 @@ import express from 'express';
 // wait for crypto wasm to be loaded
 await waitForLoad();
 
-let oldestRotationToSync: number | undefined;
-if (process.env.OLDEST_ROTATION_TO_SYNC) {
-  oldestRotationToSync = parseInt(process.env.OLDEST_ROTATION_TO_SYNC, 10);
+let oldestFrameIdToSync: number | undefined;
+if (process.env.OLDEST_FRAME_ID_TO_SYNC) {
+  oldestFrameIdToSync = parseInt(process.env.OLDEST_FRAME_ID_TO_SYNC, 10);
 }
 const pair = await keyringFromFile({
   filePath: requireEnv('KEYPAIR_PATH'),
   passphrase: process.env.KEYPAIR_PASSPHRASE,
 });
 const bot = new Bot({
-  oldestRotationToSync,
+  oldestFrameIdToSync: oldestFrameIdToSync,
   ...requireAll({
     datadir: process.env.DATADIR!,
     pair,
@@ -33,14 +33,20 @@ app.get('/status', async (_req, res) => {
   const status = await bot.status();
   jsonExt(status, res);
 });
-app.get('/earnings/:rotationId', async (req, res) => {
-  const rotationId = req.params.rotationId;
-  const data = await bot.storage.earningsFile(Number(rotationId)).get();
+app.get('/bids', async (_req, res) => {
+  const currentFrameId = await bot.currentFrameId();
+  const nextFrameId = currentFrameId + 1;
+  const data = await bot.storage.bidsFile(nextFrameId).get();
   jsonExt(data, res);
 });
-app.get('/biddings/:cohortId', async (req, res) => {
-  const cohortId = req.params.cohortId;
-  const data = await bot.storage.biddingsFile(Number(cohortId)).get();
+app.get('/bids/:frameIdAtCohortActivation', async (req, res) => {
+  const frameIdAtCohortActivation = Number(req.params.frameIdAtCohortActivation);
+  const data = await bot.storage.bidsFile(frameIdAtCohortActivation).get();
+  jsonExt(data, res);
+});
+app.get('/earnings/:frameIdAtCohortActivation', async (req, res) => {
+  const frameIdAtCohortActivation = Number(req.params.frameIdAtCohortActivation);
+  const data = await bot.storage.earningsFile(frameIdAtCohortActivation).get();
   jsonExt(data, res);
 });
 app.post('/restart-bidder', async (_req, res) => {

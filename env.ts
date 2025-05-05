@@ -9,7 +9,7 @@ declare global {
       BIDDING_RULES_PATH: string;
       DATADIR: string;
       SESSION_KEYS_MNEMONIC: string;
-      OLDEST_ROTATION_TO_SYNC?: string;
+      OLDEST_FRAME_ID_TO_SYNC?: string;
     }
   }
 }

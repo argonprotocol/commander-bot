@@ -38,5 +38,5 @@ DATADIR=string
 # Mnemonic for the session keys
 SESSION_KEYS_MNEMONIC=string
 # Optional number of oldest rotation to sync. Otherwise defaults to current.
-OLDEST_ROTATION_TO_SYNC=number
+OLDEST_FRAME_ID_TO_SYNC=number
 ```

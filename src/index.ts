@@ -7,16 +7,16 @@ import express from 'express';
 // wait for crypto wasm to be loaded
 await waitForLoad();
 
-let oldestRotationToSync: number | undefined;
-if (process.env.OLDEST_ROTATION_TO_SYNC) {
-  oldestRotationToSync = parseInt(process.env.OLDEST_ROTATION_TO_SYNC, 10);
+let oldestFrameIdToSync: number | undefined;
+if (process.env.OLDEST_FRAME_ID_TO_SYNC) {
+  oldestFrameIdToSync = parseInt(process.env.OLDEST_FRAME_ID_TO_SYNC, 10);
 }
 const pair = await keyringFromFile({
   filePath: requireEnv('KEYPAIR_PATH'),
   passphrase: process.env.KEYPAIR_PASSPHRASE,
 });
 const bot = new Bot({
-  oldestRotationToSync,
+  oldestFrameIdToSync,
   ...requireAll({
     datadir: process.env.DATADIR!,
     pair,

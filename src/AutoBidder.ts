@@ -1,5 +1,5 @@
 import { type Accountset, CohortBidder, MiningBids } from '@argonprotocol/mainchain';
-import type { CohortStorage, ICohortBiddingStats } from './storage.ts';
+import type { CohortStorage } from './storage.ts';
 import { createBidderParams } from './bidding-calculator/index.ts';
 import { readJsonFileOrNull } from './utils.ts';
 
@@ -54,21 +54,29 @@ export class AutoBidder {
   private async onBiddingStart(cohortId: number) {
     if (this.activeBidder?.cohortId === cohortId) return;
     const biddingRules = readJsonFileOrNull(this.biddingRulesPath) || {};
-    const params = await createBidderParams(
-      cohortId,
-      await this.accountset.client,
-      biddingRules,
-    );
+    const params = await createBidderParams(cohortId, await this.accountset.client, biddingRules);
     if (params.maxSeats === 0) return;
     const startingStats = await this.storage.biddingsFile(cohortId).get();
     console.log(`Cohort ${cohortId} started bidding`, {
       hasStartingStats: !!startingStats,
       seatGoal: params.maxSeats,
     });
-    
-    const subaccounts: ICohortBiddingStats['subaccounts'] = [];
+
+    const subaccounts: { index: number; isRebid: boolean; address: string }[] = [];
     if (startingStats && startingStats.subaccounts.length) {
-      subaccounts.push(...startingStats.subaccounts);
+      const miningAccounts = await this.accountset.loadRegisteredMiners(
+        await this.accountset.client,
+      );
+      for (const subaccount of startingStats.subaccounts) {
+        const account = miningAccounts.find(x => x.address === subaccount.address);
+        if (account) {
+          subaccounts.push({
+            index: subaccount.subaccountIndex,
+            isRebid: true,
+            address: subaccount.address,
+          });
+        }
+      }
     }
     // check if we need to add more seats
     if (subaccounts.length < params.maxSeats) {
@@ -80,23 +88,6 @@ export class AutoBidder {
     const activeBidder = new CohortBidder(this.accountset, cohortId, subaccounts, params);
     this.activeBidder = activeBidder;
     await activeBidder.start();
-    if (!startingStats) {
-      // only store the initial stats so we don't have to re-download the block
-      const startingStats = activeBidder.stats;
-      await this.storage.biddingsFile(cohortId).mutate(x => {
-        Object.assign(x, {
-          cohortId,
-          subaccounts,
-          lastBlockNumber: startingStats.lastBlock,
-          argonotsPerSeat: startingStats.argonotsPerSeat,
-          argonotUsdPrice: startingStats.argonotUsdPrice,
-          cohortArgonsPerBlock: startingStats.cohortArgonsPerBlock,
-        });
-      });
-      await this.storage.syncStateFile().mutate(x => {
-        x.biddingsLastUpdatedAt = new Date().toISOString();
-      });
-    }
   }
 
   private async stopBidder() {

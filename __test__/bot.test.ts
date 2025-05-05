@@ -91,6 +91,7 @@ it('can autobid and store stats', async () => {
 
   const cohort1Stats = await bot.storage.biddingsFile(1).get();
   expect(cohort1Stats).toBeTruthy();
+  console.log(`Cohort 1: ${cohort1Stats}`);
   expect(cohort1Stats?.argonotsPerSeat).toBeGreaterThanOrEqual(10000);
   expect(cohort1Stats?.maxBidPerSeat).toBeGreaterThan(0);
   expect(cohort1Stats?.seats).toBe(10);
@@ -144,7 +145,7 @@ it('can autobid and store stats', async () => {
     biddingRulesPath: Path.resolve(path, 'rules.json'),
     datadir: path2,
     keysMnemonic: mnemonicGenerate(),
-    oldestRotationToSync: 1,
+    oldestRotationToSync: Math.min(...cohorts) - 1,
   });
   console.log('Starting bot 2');
   await expect(botRestart.start()).resolves.toBeTruthy();

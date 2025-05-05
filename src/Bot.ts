@@ -62,5 +62,6 @@ export default class Bot {
   async stop() {
     await this.blockSync.stop();
     await this.autobidder.stop();
+    await this.accountset.client.then(x => x.disconnect());
   }
 }

@@ -10,13 +10,13 @@
   },
   "type": "module",
   "dependencies": {
-    "@argonprotocol/mainchain": "^1.1.0-rc.6",
+    "@argonprotocol/mainchain": "^1.1.0-rc.7",
     "express": "^5.1.0",
     "tiny-lru": "^11.2.11",
     "tsx": "^4.19.3"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "^1.1.0-rc.6",
+    "@argonprotocol/testing": "^1.1.0-rc.7",
     "@types/express": "^5.0.1",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",

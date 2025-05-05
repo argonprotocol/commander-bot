@@ -3,13 +3,36 @@ import { LRU } from 'tiny-lru';
 import * as fs from 'node:fs';
 import { JsonExt } from '@argonprotocol/mainchain';
 
-export interface ILastModified {
-  lastModified?: Date;
+export interface ILastModifiedAt {
+  lastModifiedAt?: Date;
 }
-export interface IRotationEarnings extends ILastModified {
+
+export interface ISubaccount {
+  isRebid: boolean;
+  index: number;
+  address: string;
+  argonsBid?: bigint;
+}
+
+export interface IBidsFile extends ILastModifiedAt {
+  frameIdAtCohortBidding: number;
+  frameIdAtCohortActivation: number;
+  frameBiddingProgress: number;
   lastBlockNumber: number;
-  byCohortId: {
-    [cohortId: number]: {
+  argonsToBeMinedPerBlock: bigint;
+  argonsBidTotal: bigint;
+  transactionFees: bigint;
+  argonotsStakedPerSeat: bigint;
+  argonotUsdPrice: number;
+  subaccounts: Array<ISubaccount>;
+  seatsWon: number;
+}
+
+export interface IEarningsFile extends ILastModifiedAt {
+  frameProgress: number;
+  lastBlockNumber: number;
+  byFrameIdAtCohortActivation: {
+    [frameId: number]: {
       lastBlockMinedAt: string;
       blocksMined: number;
       argonsMined: bigint;
@@ -19,28 +42,15 @@ export interface IRotationEarnings extends ILastModified {
   };
 }
 
-export interface ICohortBiddingStats extends ILastModified {
-  cohortId: number;
+export interface ISyncState extends ILastModifiedAt {
   lastBlockNumber: number;
-  subaccounts: { isRebid: boolean; index: number; address: string }[];
-  seats: number;
-  totalArgonsBid: bigint;
-  fees: bigint;
-  maxBidPerSeat: bigint;
-  argonotsPerSeat: bigint;
-  argonotUsdPrice: number;
-  cohortArgonsPerBlock: bigint;
-}
-
-export interface ISyncState extends ILastModified {
-  lastBlockNumber: number;
-  firstRotationId: number;
-  currentRotationId: number;
-  biddingsLastUpdatedAt: string;
-  earningsLastUpdatedAt: string;
+  oldestFrameId: number;
+  currentFrameId: number;
+  bidsLastModifiedAt: Date;
+  earningsLastModifiedAt: Date;
   hasWonSeats: boolean;
-  lastBlockNumberByRotationId: {
-    [rotationId: number]: number;
+  lastBlockNumberByFrameId: {
+    [frameId: number]: number;
   };
 }
 
@@ -50,7 +60,7 @@ async function atomicWrite(path: string, contents: string) {
   await fs.promises.rename(tmp, path);
 }
 
-export class JsonStore<T extends Record<string, any> & ILastModified> {
+export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
   private data: T | undefined;
 
   constructor(
@@ -65,7 +75,7 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
     }
     const result = mutateFn(this.data!);
     if (result === false) return;
-    this.data!.lastModified = new Date();
+    this.data!.lastModifiedAt = new Date();
     // filter non properties
     this.data = Object.fromEntries(
       Object.entries(this.data!).filter(([key]) => key in this.defaults),
@@ -91,8 +101,8 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
     if (this.data === undefined) {
       try {
         const data = await fs.promises.readFile(this.path, 'utf-8').then(JsonExt.parse);
-        if (data.lastModified) {
-          data.lastModified = new Date(data.lastModified);
+        if (data.lastModifiedAt) {
+          data.lastModifiedAt = new Date(data.lastModifiedAt);
         }
         this.data = data;
       } catch {}
@@ -103,8 +113,8 @@ export class JsonStore<T extends Record<string, any> & ILastModified> {
 export class CohortStorage {
   constructor(private basedir: string) {
     fs.mkdirSync(this.basedir, { recursive: true });
+    fs.mkdirSync(Path.join(this.basedir, 'bids'), { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'earnings'), { recursive: true });
-    fs.mkdirSync(Path.join(this.basedir, 'biddings'), { recursive: true });
   }
   private lruCache = new LRU<JsonStore<any>>(100);
 
@@ -114,11 +124,11 @@ export class CohortStorage {
     if (!entry) {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
         lastBlockNumber: 0,
-        firstRotationId: 0,
-        currentRotationId: 0,
-        lastBlockNumberByRotationId: {},
-        biddingsLastUpdatedAt: new Date().toISOString(),
-        earningsLastUpdatedAt: new Date().toISOString(),
+        oldestFrameId: 0,
+        currentFrameId: 0,
+        lastBlockNumberByFrameId: {},
+        bidsLastModifiedAt: new Date(),
+        earningsLastModifiedAt: new Date(),
         hasWonSeats: false,
       });
       this.lruCache.set(key, entry);
@@ -126,37 +136,40 @@ export class CohortStorage {
     return entry;
   }
 
-  /**
-   * @param rotation - a rotation number, which is always 1 less than the next cohort id
-   */
-  public earningsFile(rotation: number): JsonStore<IRotationEarnings> {
-    const key = `earnings/rotation-${rotation}.json`;
+  public bidsFile(frameIdAtCohortActivation: number): JsonStore<IBidsFile> {
+    const frameIdAtCohortBidding = frameIdAtCohortActivation - 1;
+    const key = `bids/frame-${frameIdAtCohortBidding}${frameIdAtCohortActivation}.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
-      entry = new JsonStore<IRotationEarnings>(Path.join(this.basedir, key), {
+      entry = new JsonStore<IBidsFile>(Path.join(this.basedir, key), {
+        frameIdAtCohortBidding: frameIdAtCohortBidding,
+        frameIdAtCohortActivation,
+        frameBiddingProgress: 0,
         lastBlockNumber: 0,
-        byCohortId: {},
+        argonsBidTotal: 0n,
+        transactionFees: 0n,
+        argonotsStakedPerSeat: 0n,
+        argonotUsdPrice: 0,
+        argonsToBeMinedPerBlock: 0n,
+        subaccounts: [],
+        seatsWon: 0,
       });
       this.lruCache.set(key, entry);
     }
     return entry;
   }
 
-  public biddingsFile(cohortId: number): JsonStore<ICohortBiddingStats> {
-    const key = `biddings/cohort-${cohortId}.json`;
+  /**
+   * @param frameId - the frame id of the last block mined
+   */
+  public earningsFile(frameId: number): JsonStore<IEarningsFile> {
+    const key = `earnings/frame-${frameId}.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
-      entry = new JsonStore<ICohortBiddingStats>(Path.join(this.basedir, key), {
-        cohortId,
+      entry = new JsonStore<IEarningsFile>(Path.join(this.basedir, key), {
+        frameProgress: 0,
         lastBlockNumber: 0,
-        seats: 0,
-        totalArgonsBid: 0n,
-        fees: 0n,
-        maxBidPerSeat: 0n,
-        argonotsPerSeat: 0n,
-        argonotUsdPrice: 0,
-        cohortArgonsPerBlock: 0n,
-        subaccounts: [],
+        byFrameIdAtCohortActivation: {},
       });
       this.lruCache.set(key, entry);
     }

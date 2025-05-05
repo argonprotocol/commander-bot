@@ -1,5 +1,5 @@
 import { type Accountset, CohortBidder, MiningBids } from '@argonprotocol/mainchain';
-import type { CohortStorage, ICohortBiddingStats } from './storage.ts';
+import type { CohortStorage, IBidsFile } from './storage.ts';
 import { createBidderParams } from './bidding-calculator/index.ts';
 import { readJsonFileOrNull } from './utils.ts';
 
@@ -33,9 +33,9 @@ export class AutoBidder {
 
   async restart() {
     if (this.activeBidder) {
-      const cohortId = this.activeBidder.cohortId;
+      const frameIdAtCohortActivation = this.activeBidder.cohortId;
       await this.stopBidder();
-      await this.onBiddingStart(cohortId);
+      await this.onBiddingStart(frameIdAtCohortActivation);
     }
   }
 
@@ -45,30 +45,31 @@ export class AutoBidder {
     await this.stopBidder();
   }
 
-  private async onBiddingEnd(cohortId: number): Promise<void> {
-    console.log(`Cohort ${cohortId} ended bidding`);
-    if (this.activeBidder?.cohortId !== cohortId) return;
+  private async onBiddingEnd(frameIdAtCohortActivation: number): Promise<void> {
+    console.log(`Bidding for frame ${frameIdAtCohortActivation} ended`);
+    if (this.activeBidder?.cohortId !== frameIdAtCohortActivation) return;
     await this.stopBidder();
   }
 
-  private async onBiddingStart(cohortId: number) {
-    if (this.activeBidder?.cohortId === cohortId) return;
+  private async onBiddingStart(frameIdAtCohortActivation: number) {
+    if (this.activeBidder?.cohortId === frameIdAtCohortActivation) return;
     const biddingRules = readJsonFileOrNull(this.biddingRulesPath) || {};
     const params = await createBidderParams(
-      cohortId,
+      frameIdAtCohortActivation,
       await this.accountset.client,
       biddingRules,
     );
     if (params.maxSeats === 0) return;
-    const startingStats = await this.storage.biddingsFile(cohortId).get();
-    console.log(`Cohort ${cohortId} started bidding`, {
-      hasStartingStats: !!startingStats,
+    
+    const bidsFileData = await this.storage.bidsFile(frameIdAtCohortActivation).get();
+    console.log(`Bidding for frame ${frameIdAtCohortActivation} started`, {
+      hasStartingStats: !!bidsFileData,
       seatGoal: params.maxSeats,
     });
     
-    const subaccounts: ICohortBiddingStats['subaccounts'] = [];
-    if (startingStats && startingStats.subaccounts.length) {
-      subaccounts.push(...startingStats.subaccounts);
+    const subaccounts: IBidsFile['subaccounts'] = [];
+    if (bidsFileData && bidsFileData.subaccounts.length) {
+      subaccounts.push(...bidsFileData.subaccounts);
     }
     // check if we need to add more seats
     if (subaccounts.length < params.maxSeats) {
@@ -77,34 +78,36 @@ export class AutoBidder {
       subaccounts.push(...added);
     }
 
-    const activeBidder = new CohortBidder(this.accountset, cohortId, subaccounts, params);
+    const activeBidder = new CohortBidder(this.accountset, frameIdAtCohortActivation, subaccounts, params);
     this.activeBidder = activeBidder;
     await activeBidder.start();
-    if (!startingStats) {
+    if (!bidsFileData) {
       // only store the initial stats so we don't have to re-download the block
       const startingStats = activeBidder.stats;
-      await this.storage.biddingsFile(cohortId).mutate(x => {
+      const frameIdAtCohortBidding = frameIdAtCohortActivation - 1;
+      await this.storage.bidsFile(frameIdAtCohortActivation).mutate(x => {
         Object.assign(x, {
-          cohortId,
+          frameIdAtCohortBidding,
+          frameIdAtCohortActivation,
           subaccounts,
           lastBlockNumber: startingStats.lastBlock,
-          argonotsPerSeat: startingStats.argonotsPerSeat,
+          argonotsStakedPerSeat: startingStats.argonotsPerSeat,
           argonotUsdPrice: startingStats.argonotUsdPrice,
-          cohortArgonsPerBlock: startingStats.cohortArgonsPerBlock,
+          argonsToBeMinedPerBlock: startingStats.cohortArgonsPerBlock,
         });
       });
       await this.storage.syncStateFile().mutate(x => {
-        x.biddingsLastUpdatedAt = new Date().toISOString();
+        x.bidsLastModifiedAt = new Date();
       });
     }
   }
 
   private async stopBidder() {
-    const bidder = this.activeBidder;
-    if (!bidder) return;
+    const activeBidder = this.activeBidder;
+    if (!activeBidder) return;
     this.activeBidder = undefined;
-    const cohortId = bidder.cohortId;
-    const stats = await bidder.stop();
-    console.log('Cohort bidding completed', { cohortId, ...stats });
+    const frameIdAtCohortActivation = activeBidder.cohortId;
+    const stats = await activeBidder.stop();
+    console.log('Bidding stopped', { frameIdAtCohortActivation, ...stats });
   }
 }

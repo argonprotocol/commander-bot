@@ -37,6 +37,11 @@ export default class Bot {
     );
   }
 
+  async currentFrameId() {
+    const state = await this.storage.syncStateFile().get();
+    return state?.currentFrameId ?? 0;
+  }
+
   async status() {
     return this.blockSync.status();
   }

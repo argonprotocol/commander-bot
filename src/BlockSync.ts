@@ -350,37 +350,27 @@ export class BlockSync {
         const extrinsicEvents = events.filter(
           x => x.phase.isApplyExtrinsic && x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex,
         );
-        const blockNumber = header.number.toNumber();
         const miningFee = await this.hasMiningFee(client, event, extrinsicEvents);
-        if (miningFee === 0n) continue;
-
-        const didChange = await biddingFile.mutate(x => {
-          if (x.lastBlockNumber >= blockNumber) {
-            console.warn('Already processed cohort block', {
-              lastStored: x.lastBlockNumber,
-              blockNumber: blockNumber,
-            });
-            return false;
-          }
-          x.fees += miningFee;
-        });
-        if (didChange) {
-          await this.statusFile.mutate(x => {
-            x.biddingsLastUpdatedAt = new Date().toISOString();
+        if (miningFee > 0n) {
+          const blockNumber = header.number.toNumber();
+          didChangeBiddings ||= await biddingFile.mutate(x => {
+            if (x.lastBlockNumber >= blockNumber) {
+              console.warn('Already processed cohort block', {
+                lastStored: x.lastBlockNumber,
+                blockNumber: blockNumber,
+              });
+              return false;
+            }
+            x.fees += miningFee;
           });
         }
-      } else if (client.events.miningSlot.NewMiners.is(event)) {
+      }
+
+      if (phase.isFinalization && client.events.miningSlot.NewMiners.is(event)) {
+        console.log('New miners event', event.data.toJSON());
         let hasWonSeats = false;
         const [_startIndex, newMiners, _released, cohortId] = event.data;
-        didChangeBiddings ||= await this.storage.biddingsFile(cohortId.toNumber()).mutate(x => {
-          if (x.lastBlockNumber >= blockNumber) {
-            console.warn('Already processed cohort block', {
-              lastStored: x.lastBlockNumber,
-              cohortId: cohortId.toNumber(),
-              blockNumber: blockNumber,
-            });
-            return false;
-          }
+        await this.storage.biddingsFile(cohortId.toNumber()).mutate(x => {
           x.seats = 0;
           x.totalArgonsBid = 0n;
           x.subaccounts = [];

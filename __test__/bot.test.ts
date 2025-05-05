@@ -55,11 +55,13 @@ it('can autobid and store stats', async () => {
   const status = await bot.status();
   expect(status.lastSynchedBlockNumber).toBeGreaterThanOrEqual(status.lastFinalizedBlockNumber);
   console.log(status);
+  let firstCohort = 1;
   // wait for the first rotation
   await new Promise(async resolve => {
-    const unsubscribe = await client.query.miningSlot.activeMinersCount(x => {
+    const unsubscribe = await client.query.miningSlot.activeMinersCount(async x => {
       if (x.toNumber() > 0) {
         unsubscribe();
+        firstCohort = await client.query.miningSlot.nextCohortId().then(x => x.toNumber() - 1);
         resolve(x);
       }
     });
@@ -86,12 +88,14 @@ it('can autobid and store stats', async () => {
     });
   });
 
-  console.log(`Rotations with earnings: ${[...rotationsWithEarnings]}`);
+  console.log(
+    `Rotations with earnings: ${[...rotationsWithEarnings]}. First cohort ${firstCohort}`,
+  );
   expect(rotationsWithEarnings.size).toBeGreaterThan(0);
 
-  const cohort1Stats = await bot.storage.biddingsFile(1).get();
+  const cohort1Stats = await bot.storage.biddingsFile(firstCohort).get();
   expect(cohort1Stats).toBeTruthy();
-  console.log(`Cohort 1: ${cohort1Stats}`);
+  console.log(`Cohort 1`, cohort1Stats);
   expect(cohort1Stats?.argonotsPerSeat).toBeGreaterThanOrEqual(10000);
   expect(cohort1Stats?.maxBidPerSeat).toBeGreaterThan(0);
   expect(cohort1Stats?.seats).toBe(10);

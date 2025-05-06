@@ -30,9 +30,8 @@ const defaultCohort = {
 };
 
 export interface ILastProcessed {
-  frameId: number;
-  frameTickRange: [number, number];
   date: Date;
+  frameId: number;
   blockNumber: number;
 }
 
@@ -51,6 +50,8 @@ export class BlockSync {
   latestFinalizedHeader!: Header;
   scheduleTimer?: NodeJS.Timeout;
   statusFile: JsonStore<ISyncState>;
+
+  currentFrameTickRange: [number, number] = [0, 0];
 
   oldestTick: number = 0;
   latestTick: number = 0;
@@ -83,19 +84,18 @@ export class BlockSync {
     this.miningFrames = new MiningFrames();
   }
 
-  async status() {
-    const statusFileData = await this.statusFile.get();
+  async status(): Promise<Omit<ISyncState, 'lastBlockNumberByFrameId'>> {
+    const statusFileData = (await this.statusFile.get())!;
     return {
-      bidsLastModifiedAt: statusFileData?.bidsLastModifiedAt ?? '',
-      earningsLastModifiedAt: statusFileData?.earningsLastModifiedAt ?? '',
-      hasWonSeats: statusFileData?.hasWonSeats ?? false,
-      lastSynchedBlockNumber: statusFileData?.lastBlockNumber ?? 0,
+      bidsLastModifiedAt: statusFileData.bidsLastModifiedAt,
+      earningsLastModifiedAt: statusFileData.earningsLastModifiedAt,
+      hasWonSeats: statusFileData.hasWonSeats ?? false,
+      lastBlockNumber: statusFileData.lastBlockNumber ?? 0,
       lastFinalizedBlockNumber: this.latestFinalizedHeader.number.toNumber(),
-      oldestFrameIdToSync: statusFileData?.oldestFrameIdToSync ?? 0,
-      currentFrameId: statusFileData?.currentFrameId ?? 0,
+      oldestFrameIdToSync: statusFileData.oldestFrameIdToSync ?? 0,
+      currentFrameId: statusFileData.currentFrameId ?? 0,
+      loadProgress: this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]),
       queueDepth: this.queue.length,
-      lastProcessed: this.lastProcessed,
-      progress: this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]),
     };
   }
 
@@ -182,9 +182,9 @@ export class BlockSync {
     let waitTime = 500;
     if (this.queue.length) {
       // plug any gaps in the sync state
-      const state = (await this.statusFile.get())!;
+      const statusFileData = (await this.statusFile.get())!;
       let first = this.queue.at(0)!;
-      while (first.number.toNumber() > state.lastBlockNumber + 1) {
+      while (first.number.toNumber() > statusFileData.lastBlockNumber + 1) {
         first = await this.getParentHeader(first);
         this.queue.unshift(first);
       }
@@ -223,21 +223,20 @@ export class BlockSync {
     );
     const tickDate = new Date(tick * 60000);
 
-    const isNewFrame = this.lastProcessed?.frameId !== currentFrameId;
-    const frameTickRange = isNewFrame ?
-      await this.miningFrames.getTickRangeForFrame(this.localClient, currentFrameId) :
-      this.lastProcessed?.frameTickRange ?? [0, 0];
+    if (this.lastProcessed?.frameId !== currentFrameId) {
+      this.currentFrameTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, currentFrameId);
+    }
 
     const didChangeBiddings = await this.syncBidding(header, events);
     await this.storage.earningsFile(currentFrameId).mutate(x => {
       if (x.lastBlockNumber >= header.number.toNumber()) {
         console.warn('Already processed block', {
-          lastStored: x.lastBlockNumber,
+          lastBlockNumber: x.lastBlockNumber,
           blockNumber: header.number.toNumber(),
         });
         return false;
       }
-      x.frameProgress = this.calculateProgress(tick, frameTickRange);
+      x.frameProgress = this.calculateProgress(tick, this.currentFrameTickRange);
       x.lastBlockNumber = header.number.toNumber();
       for (const [frameIdAtCohortActivationStr, earnings] of Object.entries(cohortActivationAtFrameIds)) {
         const frameIdAtCohortActivation = Number(frameIdAtCohortActivationStr);
@@ -257,25 +256,30 @@ export class BlockSync {
         blockNumber: header.number.toNumber(),
       });
     });
+
+    this.currentTick = tick ?? 0;
+    if ( this.latestTick < this.currentTick) {
+      this.latestTick = this.currentTick;
+    }
+    this.lastProcessed = {
+      date: new Date(),
+      frameId: currentFrameId,
+      blockNumber: header.number.toNumber(), 
+    };
+
     await this.statusFile.mutate(x => {
       if (x.lastBlockNumber >= header.number.toNumber()) {
         return false;
       }
       if (didChangeBiddings) x.bidsLastModifiedAt = new Date();
-      x.progress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
       x.earningsLastModifiedAt = new Date();
       x.lastBlockNumber = header.number.toNumber();
       x.currentFrameId = currentFrameId;
+      x.loadProgress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
+      x.queueDepth = this.queue.length;
       x.lastBlockNumberByFrameId[currentFrameId] = header.number.toNumber();
     });
     
-    this.currentTick = tick ?? 0;
-    this.lastProcessed = {
-      blockNumber: header.number.toNumber(), 
-      date: new Date(),
-      frameId: currentFrameId,
-      frameTickRange,
-    };
     this.didProcessFinalizedBlock?.(this.lastProcessed);
   }
 
@@ -301,7 +305,7 @@ export class BlockSync {
       this.oldestFrameIdToSync ?? (await this.getFrameIdFromHeader(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
       x.oldestFrameIdToSync = oldestFrameIdToSync;
-      x.progress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
+      x.loadProgress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
     });
   }
 
@@ -344,7 +348,7 @@ export class BlockSync {
           x.argonotsStakedPerSeat = startingStats.argonotsPerSeat
           x.argonsToBeMinedPerBlock = startingStats.cohortArgonsPerBlock
         }
-        x.frameBiddingProgress = this.calculateProgress(headerTick, this.lastProcessed?.frameTickRange);
+        x.frameBiddingProgress = this.calculateProgress(headerTick, this.currentFrameTickRange);
         x.lastBlockNumber = blockNumber;
         // we just want to know who has a winning bid so we don't outbid them on restart
         x.subaccounts = nextCohort
@@ -440,7 +444,7 @@ export class BlockSync {
         });
         await this.statusFile.mutate(x => {
           x.bidsLastModifiedAt = new Date();
-          x.progress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
+          x.loadProgress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
           if (hasWonSeats) {
             x.hasWonSeats = true;
           }
@@ -489,9 +493,9 @@ export class BlockSync {
     return 0n;
   }
 
-  calculateProgress(tick: number | undefined, frameTickRange: [number, number] | undefined): number {
-    if (!tick || !frameTickRange) return 0;
-    const progress = tick ? (tick - frameTickRange[0]) / (frameTickRange[1] - frameTickRange[0]) : 0;
+  calculateProgress(tick: number | undefined, tickRange: [number, number] | undefined): number {
+    if (!tick || !tickRange) return 0;
+    const progress = tick ? (tick - tickRange[0]) / (tickRange[1] - tickRange[0]) : 0;
     return Math.round(progress * 10000) / 100;
   }
 }

@@ -53,7 +53,7 @@ it('can autobid and store stats', async () => {
 
   await expect(bot.start()).resolves.toBeTruthy();
   const status = await bot.status();
-  expect(status.lastSynchedBlockNumber).toBeGreaterThanOrEqual(status.lastFinalizedBlockNumber);
+  expect(status.lastBlockNumber).toBeGreaterThanOrEqual(status.lastFinalizedBlockNumber);
   console.log(status);
   let firstCohort = 1;
   // wait for the first rotation
@@ -104,7 +104,7 @@ it('can autobid and store stats', async () => {
   while (true) {
     await new Promise(resolve => setTimeout(resolve, 100));
     const status = await bot.status();
-    if (status.lastSynchedBlockNumber >= lastFinalizedBlockNumber) break;
+    if (status.lastBlockNumber >= lastFinalizedBlockNumber) break;
   }
 
   const frameIdsAtCohortActivation = new Set<number>();

@@ -26,13 +26,13 @@ export interface IBidsFile extends ILastModifiedAt {
   frameIdAtCohortActivation: number;
   frameBiddingProgress: number;
   lastBlockNumber: number;
-  subaccounts: Array<ISubaccount>;
-  seatsWon: number;
   argonsBidTotal: bigint;
   transactionFees: bigint;
   argonotsStakedPerSeat: bigint;
   argonotUsdPrice: number;
   argonsToBeMinedPerBlock: bigint;
+  seatsWon: number;
+  subaccounts: Array<ISubaccount>;
 }
 
 export interface ISubaccount {
@@ -45,13 +45,15 @@ export interface ISubaccount {
 }
 
 export interface ISyncState extends ILastModifiedAt {
-  lastBlockNumber: number;
-  progress: number;
-  oldestFrameIdToSync: number;
-  currentFrameId: number;
   bidsLastModifiedAt: Date;
   earningsLastModifiedAt: Date;
   hasWonSeats: boolean;
+  lastBlockNumber: number;
+  lastFinalizedBlockNumber: number;
+  oldestFrameIdToSync: number;
+  currentFrameId: number;
+  loadProgress: number;
+  queueDepth: number;
   lastBlockNumberByFrameId: {
     [frameId: number]: number;
   };
@@ -129,14 +131,16 @@ export class CohortStorage {
     let entry = this.lruCache.get(key);
     if (!entry) {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
-        lastBlockNumber: 0,
-        progress: 0,
-        oldestFrameIdToSync: 0,
-        currentFrameId: 0,
-        lastBlockNumberByFrameId: {},
         bidsLastModifiedAt: new Date(),
         earningsLastModifiedAt: new Date(),
         hasWonSeats: false,
+        lastBlockNumber: 0,
+        lastFinalizedBlockNumber: 0,
+        oldestFrameIdToSync: 0,
+        currentFrameId: 0,
+        loadProgress: 0,
+        queueDepth: 0,
+        lastBlockNumberByFrameId: {},
       });
       this.lruCache.set(key, entry);
     }

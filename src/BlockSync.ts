@@ -121,27 +121,31 @@ export class BlockSync {
 
     const finalizedHash = await this.localClient.rpc.chain.getFinalizedHead();
     const statusFileData = (await this.statusFile.get())!;
-    const earliestTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, statusFileData.earliestFrameId);
 
     this.latestFinalizedHeader = await this.localClient.rpc.chain.getHeader(finalizedHash);
     this.latestTick = getTickFromHeader(this.localClient, this.latestFinalizedHeader) ?? 0;
-    this.earliestTick = earliestTickRange[0];
     await this.setEarliestFrameIdIfNeeded();
+
+    const earliestTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, statusFileData.earliestFrameId);
+    this.earliestTick = earliestTickRange[0];
 
     // plug any gaps in the sync state
     let header = this.latestFinalizedHeader;
     let headerBlockNumber = header.number.toNumber();
-    let headerFrameId = await this.getCurrentFrameId(header);
+    let headerFrameId = await this.getFrameIdFromHeader(header);
     
     while ( 
       headerBlockNumber > statusFileData.lastBlockNumber + 1 &&
       headerFrameId >= statusFileData.earliestFrameId
     ) {
-      console.log(`Queuing frame ${headerFrameId} block ${headerBlockNumber} `);
+      console.log('--------------------------------');
+      console.log(`Queuing frame ${headerFrameId} block ${headerBlockNumber}`);
+      console.log('headerBlockNumber > statusFileData.lastBlockNumber + 1', headerBlockNumber > statusFileData.lastBlockNumber + 1, headerBlockNumber, ' > ', statusFileData.lastBlockNumber + 1);
+      console.log('headerFrameId >= statusFileData.earliestFrameId', headerFrameId >= statusFileData.earliestFrameId, headerFrameId, ' >= ', statusFileData.earliestFrameId);
       this.queue.unshift(header);
       header = await this.getParentHeader(header);
       headerBlockNumber = header.number.toNumber();
-      headerFrameId = await this.getCurrentFrameId(header);
+      headerFrameId = await this.getFrameIdFromHeader(header);
     }
 
     console.log('Sync starting', {
@@ -205,7 +209,7 @@ export class BlockSync {
   async processHeader(header: Header) {
     const author = getAuthorFromHeader(this.localClient, header);
     const tick = getTickFromHeader(this.localClient, header);
-    const currentFrameId = await this.getCurrentFrameId(header);
+    const currentFrameId = await this.getFrameIdFromHeader(header);
 
     if (!tick || !author) {
       console.warn('No tick or author found for header', header.number.toNumber());
@@ -297,7 +301,7 @@ export class BlockSync {
     const statusFileData = await this.statusFile.get();
     if (statusFileData && statusFileData.earliestFrameId > 0) return;
     const earliestFrameId =
-      this.earliestFrameIdToSync ?? (await this.getCurrentFrameId(this.latestFinalizedHeader));
+      this.earliestFrameIdToSync ?? (await this.getFrameIdFromHeader(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
       x.earliestFrameId = earliestFrameId;
       x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
@@ -308,7 +312,7 @@ export class BlockSync {
     return this.getRpcClient(header).rpc.chain.getHeader(header.parentHash);
   }
 
-  private async getCurrentFrameId(header: Header): Promise<number> {
+  private async getFrameIdFromHeader(header: Header): Promise<number> {
     const currentFrameId = await new MiningRotations().getForHeader(this.localClient, header);
     if (currentFrameId === undefined) {
       throw new Error(`Error getting frame id for header ${header.number.toNumber()}`);

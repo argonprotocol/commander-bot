@@ -24,7 +24,7 @@ export class MiningFrames {
     const ticksBetweenFrames = this.miningConfig!.ticksBetweenSlots;
     const frameZeroStart = this.genesisTick! +this.miningConfig!.slotBiddingStartAfterTicks;
     const startingTick = frameZeroStart + (frameId * ticksBetweenFrames);
-    const endingTick = startingTick + ticksBetweenFrames;
+    const endingTick = startingTick + ticksBetweenFrames - 1;
 
     return [startingTick, endingTick];
   }

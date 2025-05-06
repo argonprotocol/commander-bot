@@ -47,7 +47,7 @@ export interface ISubaccount {
 export interface ISyncState extends ILastModifiedAt {
   lastBlockNumber: number;
   progress: number;
-  oldestFrameId: number;
+  earliestFrameId: number;
   currentFrameId: number;
   bidsLastModifiedAt: Date;
   earningsLastModifiedAt: Date;
@@ -100,7 +100,7 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
 
   public async get(): Promise<T | undefined> {
     await this.load();
-    return structuredClone(this.data!);
+    return structuredClone(this.data || this.defaults as T);
   }
 
   private async load(): Promise<void> {
@@ -131,7 +131,7 @@ export class CohortStorage {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
         lastBlockNumber: 0,
         progress: 0,
-        oldestFrameId: 0,
+        earliestFrameId: 0,
         currentFrameId: 0,
         lastBlockNumberByFrameId: {},
         bidsLastModifiedAt: new Date(),

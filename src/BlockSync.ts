@@ -76,7 +76,7 @@ export class BlockSync {
     public accountset: Accountset,
     public storage: CohortStorage,
     public archiveUrl: string,
-    private oldestFrameIdToSync?: number,
+    private earliestFrameIdToSync?: number,
   ) {
     this.scheduleNext = this.scheduleNext.bind(this);
     this.statusFile = this.storage.syncStateFile();
@@ -91,7 +91,7 @@ export class BlockSync {
       hasWonSeats: statusFileData?.hasWonSeats ?? false,
       lastSynchedBlockNumber: statusFileData?.lastBlockNumber ?? 0,
       lastFinalizedBlockNumber: this.latestFinalizedHeader.number.toNumber(),
-      oldestFrameId: statusFileData?.oldestFrameId ?? 0,
+      earliestFrameId: statusFileData?.earliestFrameId ?? 0,
       currentFrameId: statusFileData?.currentFrameId ?? 0,
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
@@ -118,12 +118,15 @@ export class BlockSync {
     this.isStopping = false;
     this.archiveClient = await getClient(this.archiveUrl);
     this.localClient = await this.accountset.client;
+
     const finalizedHash = await this.localClient.rpc.chain.getFinalizedHead();
+    const statusFileData = (await this.statusFile.get())!;
+    const earliestTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, statusFileData.earliestFrameId);
+
     this.latestFinalizedHeader = await this.localClient.rpc.chain.getHeader(finalizedHash);
     this.latestTick = getTickFromHeader(this.localClient, this.latestFinalizedHeader) ?? 0;
-    await this.setOldestFrameIdIfNeeded();
-
-    const state = (await this.statusFile.get())!;
+    this.earliestTick = earliestTickRange[0];
+    await this.setEarliestFrameIdIfNeeded();
 
     // plug any gaps in the sync state
     let header = this.latestFinalizedHeader;
@@ -131,8 +134,8 @@ export class BlockSync {
     let headerFrameId = await this.getCurrentFrameId(header);
     
     while ( 
-      headerBlockNumber > state.lastBlockNumber + 1 &&
-      headerFrameId >= state.oldestFrameId
+      headerBlockNumber > statusFileData.lastBlockNumber + 1 &&
+      headerFrameId >= statusFileData.earliestFrameId
     ) {
       console.log(`Queuing frame ${headerFrameId} block ${headerBlockNumber} `);
       this.queue.unshift(header);
@@ -142,7 +145,7 @@ export class BlockSync {
     }
 
     console.log('Sync starting', {
-      ...state,
+      ...statusFileData,
       queue: `${this.queue.at(0)?.number.toNumber()}..${this.queue.at(-1)?.number.toNumber()}`,
     });
 
@@ -208,8 +211,6 @@ export class BlockSync {
       console.warn('No tick or author found for header', header.number.toNumber());
       return;
     }
-
-    this.earliestTick ??= getTickFromHeader(this.localClient, this.queue.at(0)!) ?? 0;
 
     const client = this.getRpcClient(header);
     const api = await client.at(header.hash);
@@ -292,13 +293,13 @@ export class BlockSync {
     return this.localClient;
   }
 
-  private async setOldestFrameIdIfNeeded() {
+  private async setEarliestFrameIdIfNeeded() {
     const statusFileData = await this.statusFile.get();
-    if (statusFileData && statusFileData.oldestFrameId > 0) return;
-    const oldestFrameId =
-      this.oldestFrameIdToSync ?? (await this.getCurrentFrameId(this.latestFinalizedHeader));
+    if (statusFileData && statusFileData.earliestFrameId > 0) return;
+    const earliestFrameId =
+      this.earliestFrameIdToSync ?? (await this.getCurrentFrameId(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
-      x.oldestFrameId = oldestFrameId;
+      x.earliestFrameId = earliestFrameId;
       x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
     });
   }

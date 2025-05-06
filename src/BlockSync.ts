@@ -84,19 +84,18 @@ export class BlockSync {
   }
 
   async status() {
-    const state = await this.statusFile.get();
-    const progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
+    const statusFileData = await this.statusFile.get();
     return {
-      bidsLastModifiedAt: state?.bidsLastModifiedAt ?? '',
-      earningsLastModifiedAt: state?.earningsLastModifiedAt ?? '',
-      hasWonSeats: state?.hasWonSeats ?? false,
-      lastSynchedBlockNumber: state?.lastBlockNumber ?? 0,
+      bidsLastModifiedAt: statusFileData?.bidsLastModifiedAt ?? '',
+      earningsLastModifiedAt: statusFileData?.earningsLastModifiedAt ?? '',
+      hasWonSeats: statusFileData?.hasWonSeats ?? false,
+      lastSynchedBlockNumber: statusFileData?.lastBlockNumber ?? 0,
       lastFinalizedBlockNumber: this.latestFinalizedHeader.number.toNumber(),
-      oldestFrameId: state?.oldestFrameId ?? 0,
-      currentFrameId: state?.currentFrameId ?? 0,
+      oldestFrameId: statusFileData?.oldestFrameId ?? 0,
+      currentFrameId: statusFileData?.currentFrameId ?? 0,
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
-      progress,
+      progress: this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]),
     };
   }
 
@@ -294,8 +293,8 @@ export class BlockSync {
   }
 
   private async setOldestFrameIdIfNeeded() {
-    const state = await this.statusFile.get();
-    if (state && state.oldestFrameId > 0) return;
+    const statusFileData = await this.statusFile.get();
+    if (statusFileData && statusFileData.oldestFrameId > 0) return;
     const oldestFrameId =
       this.oldestFrameIdToSync ?? (await this.getCurrentFrameId(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
@@ -490,6 +489,6 @@ export class BlockSync {
   calculateProgress(tick: number | undefined, frameTickRange: [number, number] | undefined): number {
     if (!tick || !frameTickRange) return 0;
     const progress = tick ? (tick - frameTickRange[0]) / (frameTickRange[1] - frameTickRange[0]) : 0;
-    return Math.round(progress * 100);
+    return Math.round(progress * 10000) / 100;
   }
 }

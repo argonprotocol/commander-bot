@@ -37,6 +37,6 @@ BIDDING_RULES_PATH=string
 DATADIR=string
 # Mnemonic for the session keys
 SESSION_KEYS_MNEMONIC=string
-# Optional number of earliest rotation to sync. Otherwise defaults to current.
-EARLIEST_FRAME_ID_TO_SYNC=number
+# Optional number of oldest frame to sync. Otherwise defaults to current.
+OLDEST_FRAME_ID_TO_SYNC=number
 ```

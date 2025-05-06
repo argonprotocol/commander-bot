@@ -36,9 +36,9 @@ export interface IBidsFile extends ILastModifiedAt {
 }
 
 export interface ISubaccount {
-  subaccountIndex: number;
+  index: number;
   address: string;
-  bidPlace?: number;
+  bidPosition?: number;
   argonsBid?: bigint;
   isRebid?: boolean;
   lastBidAtTick?: number;
@@ -47,7 +47,7 @@ export interface ISubaccount {
 export interface ISyncState extends ILastModifiedAt {
   lastBlockNumber: number;
   progress: number;
-  earliestFrameId: number;
+  oldestFrameIdToSync: number;
   currentFrameId: number;
   bidsLastModifiedAt: Date;
   earningsLastModifiedAt: Date;
@@ -131,7 +131,7 @@ export class CohortStorage {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
         lastBlockNumber: 0,
         progress: 0,
-        earliestFrameId: 0,
+        oldestFrameIdToSync: 0,
         currentFrameId: 0,
         lastBlockNumberByFrameId: {},
         bidsLastModifiedAt: new Date(),

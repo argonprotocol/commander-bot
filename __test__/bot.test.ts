@@ -148,7 +148,7 @@ it('can autobid and store stats', async () => {
     biddingRulesPath: Path.resolve(path, 'rules.json'),
     datadir: path2,
     keysMnemonic: mnemonicGenerate(),
-    earliestFrameIdToSync: Math.min(...frameIdsAtCohortActivation) - 1,
+    oldestFrameIdToSync: Math.min(...frameIdsAtCohortActivation) - 1,
   });
   console.log('Starting bot 2');
   await expect(botRestart.start()).resolves.toBeTruthy();

@@ -52,7 +52,7 @@ export class BlockSync {
   scheduleTimer?: NodeJS.Timeout;
   statusFile: JsonStore<ISyncState>;
 
-  earliestTick: number = 0;
+  oldestTick: number = 0;
   latestTick: number = 0;
   currentTick: number = 0;
 
@@ -76,7 +76,7 @@ export class BlockSync {
     public accountset: Accountset,
     public storage: CohortStorage,
     public archiveUrl: string,
-    private earliestFrameIdToSync?: number,
+    private oldestFrameIdToSync?: number,
   ) {
     this.scheduleNext = this.scheduleNext.bind(this);
     this.statusFile = this.storage.syncStateFile();
@@ -91,11 +91,11 @@ export class BlockSync {
       hasWonSeats: statusFileData?.hasWonSeats ?? false,
       lastSynchedBlockNumber: statusFileData?.lastBlockNumber ?? 0,
       lastFinalizedBlockNumber: this.latestFinalizedHeader.number.toNumber(),
-      earliestFrameId: statusFileData?.earliestFrameId ?? 0,
+      oldestFrameIdToSync: statusFileData?.oldestFrameIdToSync ?? 0,
       currentFrameId: statusFileData?.currentFrameId ?? 0,
       queueDepth: this.queue.length,
       lastProcessed: this.lastProcessed,
-      progress: this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]),
+      progress: this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]),
     };
   }
 
@@ -123,11 +123,11 @@ export class BlockSync {
 
     this.latestFinalizedHeader = await this.localClient.rpc.chain.getHeader(finalizedHash);
     this.latestTick = getTickFromHeader(this.localClient, this.latestFinalizedHeader) ?? 0;
-    await this.setEarliestFrameIdIfNeeded();
+    await this.setOldestFrameIdIfNeeded();
 
     const statusFileData = (await this.statusFile.get())!;
-    const earliestTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, statusFileData.earliestFrameId);
-    this.earliestTick = earliestTickRange[0];
+    const oldestTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, statusFileData.oldestFrameIdToSync);
+    this.oldestTick = oldestTickRange[0];
 
     // plug any gaps in the sync state
     let header = this.latestFinalizedHeader;
@@ -136,12 +136,9 @@ export class BlockSync {
     
     while ( 
       headerBlockNumber > statusFileData.lastBlockNumber + 1 &&
-      headerFrameId >= statusFileData.earliestFrameId
+      headerFrameId >= statusFileData.oldestFrameIdToSync
     ) {
-      console.log('--------------------------------');
       console.log(`Queuing frame ${headerFrameId} block ${headerBlockNumber}`);
-      console.log('headerBlockNumber > statusFileData.lastBlockNumber + 1', headerBlockNumber > statusFileData.lastBlockNumber + 1, headerBlockNumber, ' > ', statusFileData.lastBlockNumber + 1);
-      console.log('headerFrameId >= statusFileData.earliestFrameId', headerFrameId >= statusFileData.earliestFrameId, headerFrameId, ' >= ', statusFileData.earliestFrameId);
       this.queue.unshift(header);
       header = await this.getParentHeader(header);
       headerBlockNumber = header.number.toNumber();
@@ -265,7 +262,7 @@ export class BlockSync {
         return false;
       }
       if (didChangeBiddings) x.bidsLastModifiedAt = new Date();
-      x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
+      x.progress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
       x.earningsLastModifiedAt = new Date();
       x.lastBlockNumber = header.number.toNumber();
       x.currentFrameId = currentFrameId;
@@ -297,14 +294,14 @@ export class BlockSync {
     return this.localClient;
   }
 
-  private async setEarliestFrameIdIfNeeded() {
+  private async setOldestFrameIdIfNeeded() {
     const statusFileData = await this.statusFile.get();
-    if (statusFileData && statusFileData.earliestFrameId > 0) return;
-    const earliestFrameId =
-      this.earliestFrameIdToSync ?? (await this.getFrameIdFromHeader(this.latestFinalizedHeader));
+    if (statusFileData && statusFileData.oldestFrameIdToSync > 0) return;
+    const oldestFrameIdToSync =
+      this.oldestFrameIdToSync ?? (await this.getFrameIdFromHeader(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
-      x.earliestFrameId = earliestFrameId;
-      x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
+      x.oldestFrameIdToSync = oldestFrameIdToSync;
+      x.progress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
     });
   }
 
@@ -356,9 +353,9 @@ export class BlockSync {
             if (!this.accountset.subAccountsByAddress[address]) return undefined;
             const ourMiner = this.accountset.subAccountsByAddress[address];
             return {
-              subaccountIndex: ourMiner.index,
+              index: ourMiner.index,
               address,
-              bidPlace: i,
+              bidPosition: i,
               lastBidAtTick: c.bidAtTick?.toNumber(),
             };
           })
@@ -420,7 +417,7 @@ export class BlockSync {
           x.subaccounts = [];
           x.lastBlockNumber = blockNumber;
 
-          let index = 0;
+          let bidPosition = 0;
           for (const miner of newMiners) {
             const address = miner.accountId.toHuman();
             const argonsBid = miner.bid.toBigInt();
@@ -431,18 +428,19 @@ export class BlockSync {
               x.seatsWon += 1;
               x.argonsBidTotal += argonsBid;
               x.subaccounts.push({
-                subaccountIndex: ourMiner.index,
+                index: ourMiner.index,
                 address,
                 lastBidAtTick: miner.bidAtTick?.toNumber(),
-                bidPlace: index,
+                bidPosition,
+                argonsBid,
               });
             }
-            index++;
+            bidPosition++;
           }
         });
         await this.statusFile.mutate(x => {
           x.bidsLastModifiedAt = new Date();
-          x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
+          x.progress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
           if (hasWonSeats) {
             x.hasWonSeats = true;
           }

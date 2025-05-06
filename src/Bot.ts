@@ -17,7 +17,7 @@ export default class Bot {
       archiveRpcUrl: string;
       biddingRulesPath: string;
       keysMnemonic: string;
-      earliestFrameIdToSync?: number;
+      oldestFrameIdToSync?: number;
     },
   ) {
     this.storage = new CohortStorage(options.datadir);
@@ -33,7 +33,7 @@ export default class Bot {
       this.accountset,
       this.storage,
       options.archiveRpcUrl,
-      options.earliestFrameIdToSync,
+      options.oldestFrameIdToSync,
     );
   }
 

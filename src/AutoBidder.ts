@@ -76,7 +76,7 @@ export class AutoBidder {
         const account = miningAccounts.find(x => x.address === subaccount.address);
         if (account) {
           subaccounts.push({
-            index: subaccount.subaccountIndex,
+            index: subaccount.index,
             isRebid: true,
             address: subaccount.address,
           });

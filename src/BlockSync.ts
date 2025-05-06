@@ -261,6 +261,7 @@ export class BlockSync {
         return false;
       }
       if (didChangeBiddings) x.bidsLastModifiedAt = new Date();
+      x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
       x.earningsLastModifiedAt = new Date();
       x.lastBlockNumber = header.number.toNumber();
       x.currentFrameId = currentFrameId;
@@ -299,6 +300,7 @@ export class BlockSync {
       this.oldestFrameIdToSync ?? (await this.getCurrentFrameId(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
       x.oldestFrameId = oldestFrameId;
+      x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
     });
   }
 
@@ -436,6 +438,7 @@ export class BlockSync {
         });
         await this.statusFile.mutate(x => {
           x.bidsLastModifiedAt = new Date();
+          x.progress = this.calculateProgress(this.currentTick, [this.earliestTick, this.latestTick]);
           if (hasWonSeats) {
             x.hasWonSeats = true;
           }
@@ -486,6 +489,7 @@ export class BlockSync {
 
   calculateProgress(tick: number | undefined, frameTickRange: [number, number] | undefined): number {
     if (!tick || !frameTickRange) return 0;
-    return tick ? (tick - frameTickRange[0]) / (frameTickRange[1] - frameTickRange[0]) : 0
+    const progress = tick ? (tick - frameTickRange[0]) / (frameTickRange[1] - frameTickRange[0]) : 0;
+    return Math.round(progress * 100);
   }
 }

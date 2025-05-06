@@ -46,6 +46,7 @@ export interface ISubaccount {
 
 export interface ISyncState extends ILastModifiedAt {
   lastBlockNumber: number;
+  progress: number;
   oldestFrameId: number;
   currentFrameId: number;
   bidsLastModifiedAt: Date;

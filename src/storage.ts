@@ -130,6 +130,7 @@ export class CohortStorage {
     if (!entry) {
       entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
         lastBlockNumber: 0,
+        progress: 0,
         oldestFrameId: 0,
         currentFrameId: 0,
         lastBlockNumberByFrameId: {},

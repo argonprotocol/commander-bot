@@ -1,7 +1,8 @@
 import Path from 'node:path';
 import { LRU } from 'tiny-lru';
 import * as fs from 'node:fs';
-import { JsonExt } from '@argonprotocol/mainchain';
+import { JsonExt, type ArgonClient } from '@argonprotocol/mainchain';
+import { MiningFrames } from './MiningFrames.ts';
 
 export interface ILastModifiedAt {
   lastModifiedAt?: Date;
@@ -9,6 +10,10 @@ export interface ILastModifiedAt {
 
 export interface IEarningsFile extends ILastModifiedAt {
   frameProgress: number;
+  frameTickRange: {
+    start: number;
+    end: number;
+  };
   lastBlockNumber: number;
   byFrameIdAtCohortActivation: {
     [frameId: number]: {
@@ -67,10 +72,11 @@ async function atomicWrite(path: string, contents: string) {
 
 export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
   private data: T | undefined;
+  private defaults!: Omit<T, 'lastModified'>;
 
   constructor(
     private path: string,
-    private defaults: Omit<T, 'lastModified'>,
+    private defaultsFn: () => Omit<T, 'lastModified'> | Promise<Omit<T, 'lastModified'>>,
   ) {}
 
   public async mutate(
@@ -106,6 +112,7 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
   }
 
   private async load(): Promise<void> {
+    this.defaults = await this.defaultsFn();
     if (this.data === undefined) {
       try {
         const data = await fs.promises.readFile(this.path, 'utf-8').then(JsonExt.parse);
@@ -119,7 +126,7 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
 }
 
 export class CohortStorage {
-  constructor(private basedir: string) {
+  constructor(private basedir: string, private clientPromise: Promise<ArgonClient>) {
     fs.mkdirSync(this.basedir, { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'bids'), { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'earnings'), { recursive: true });
@@ -130,7 +137,7 @@ export class CohortStorage {
     const key = `sync-state.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
-      entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), {
+      entry = new JsonStore<ISyncState>(Path.join(this.basedir, key), () => ({
         bidsLastModifiedAt: new Date(),
         earningsLastModifiedAt: new Date(),
         hasWonSeats: false,
@@ -141,7 +148,7 @@ export class CohortStorage {
         loadProgress: 0,
         queueDepth: 0,
         lastBlockNumberByFrameId: {},
-      });
+      }));
       this.lruCache.set(key, entry);
     }
     return entry;
@@ -154,10 +161,18 @@ export class CohortStorage {
     const key = `earnings/frame-${frameId}.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
-      entry = new JsonStore<IEarningsFile>(Path.join(this.basedir, key), {
-        frameProgress: 0,
-        lastBlockNumber: 0,
-        byFrameIdAtCohortActivation: {},
+      entry = new JsonStore<IEarningsFile>(Path.join(this.basedir, key), async () => {
+        const client = await this.clientPromise;
+        const tickRange = await new MiningFrames().getTickRangeForFrame(client, frameId);
+        return {
+          frameProgress: 0,
+          lastBlockNumber: 0,
+          byFrameIdAtCohortActivation: {},
+          frameTickRange: {
+            start: tickRange[0],
+            end: tickRange[1],
+          },
+        };
       });
       this.lruCache.set(key, entry);
     }
@@ -169,7 +184,7 @@ export class CohortStorage {
     const key = `bids/frame-${frameIdAtCohortBidding}-${frameIdAtCohortActivation}.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
-      entry = new JsonStore<IBidsFile>(Path.join(this.basedir, key), {
+      entry = new JsonStore<IBidsFile>(Path.join(this.basedir, key), () => ({
         frameIdAtCohortBidding: frameIdAtCohortBidding,
         frameIdAtCohortActivation,
         frameBiddingProgress: 0,
@@ -181,7 +196,7 @@ export class CohortStorage {
         argonotsUsdPrice: 0,
         argonsToBeMinedPerBlock: 0n,
         subaccounts: [],
-      });
+      }));
       this.lruCache.set(key, entry);
     }
     return entry;

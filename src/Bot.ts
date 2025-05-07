@@ -20,8 +20,8 @@ export default class Bot {
       oldestFrameIdToSync?: number;
     },
   ) {
-    this.storage = new CohortStorage(options.datadir);
     const client = getClient(options.localRpcUrl);
+    this.storage = new CohortStorage(options.datadir, client);
     this.accountset = new Accountset({
       client,
       seedAccount: options.pair,

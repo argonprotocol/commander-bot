@@ -10,10 +10,8 @@ export interface ILastModifiedAt {
 
 export interface IEarningsFile extends ILastModifiedAt {
   frameProgress: number;
-  frameTickRange: {
-    start: number;
-    end: number;
-  };
+  frameTickStart: number;
+  frameTickEnd: number;
   lastBlockNumber: number;
   byFrameIdAtCohortActivation: {
     [frameId: number]: {
@@ -168,10 +166,8 @@ export class CohortStorage {
           frameProgress: 0,
           lastBlockNumber: 0,
           byFrameIdAtCohortActivation: {},
-          frameTickRange: {
-            start: tickRange[0],
-            end: tickRange[1],
-          },
+          frameTickStart: tickRange[0],
+          frameTickEnd: tickRange[1],
         };
       });
       this.lruCache.set(key, entry);

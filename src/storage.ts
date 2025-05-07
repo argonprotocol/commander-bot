@@ -29,7 +29,7 @@ export interface IBidsFile extends ILastModifiedAt {
   argonsBidTotal: bigint;
   transactionFees: bigint;
   argonotsStakedPerSeat: bigint;
-  argonotUsdPrice: number;
+  argonotsUsdPrice: number;
   argonsToBeMinedPerBlock: bigint;
   seatsWon: number;
   subaccounts: Array<ISubaccount>;
@@ -178,7 +178,7 @@ export class CohortStorage {
         argonsBidTotal: 0n,
         transactionFees: 0n,
         argonotsStakedPerSeat: 0n,
-        argonotUsdPrice: 0,
+        argonotsUsdPrice: 0,
         argonsToBeMinedPerBlock: 0n,
         subaccounts: [],
       });

@@ -344,7 +344,7 @@ export class BlockSync {
         }
         if (!x.argonsToBeMinedPerBlock) {
           const startingStats = await CohortBidder.getStartingData(api);
-          x.argonotUsdPrice = startingStats.argonotUsdPrice
+          x.argonotsUsdPrice = startingStats.argonotUsdPrice
           x.argonotsStakedPerSeat = startingStats.argonotsPerSeat
           x.argonsToBeMinedPerBlock = startingStats.cohortArgonsPerBlock
         }

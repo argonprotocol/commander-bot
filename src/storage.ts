@@ -13,8 +13,8 @@ export interface IEarningsFile extends ILastModifiedAt {
   frameTickStart: number;
   frameTickEnd: number;
   lastBlockNumber: number;
-  byFrameIdAtCohortActivation: {
-    [frameId: number]: {
+  byCohortFrameId: {
+    [cohortFrameId: number]: {
       lastBlockMinedAt: string;
       blocksMined: number;
       argonsMined: bigint;
@@ -25,8 +25,8 @@ export interface IEarningsFile extends ILastModifiedAt {
 }
 
 export interface IBidsFile extends ILastModifiedAt {
-  frameIdAtCohortBidding: number;
-  frameIdAtCohortActivation: number;
+  cohortBiddingFrameId: number;
+  cohortFrameId: number;
   frameBiddingProgress: number;
   lastBlockNumber: number;
   argonsBidTotal: bigint;
@@ -165,7 +165,7 @@ export class CohortStorage {
         return {
           frameProgress: 0,
           lastBlockNumber: 0,
-          byFrameIdAtCohortActivation: {},
+          byCohortFrameId: {},
           frameTickStart: tickRange[0],
           frameTickEnd: tickRange[1],
         };
@@ -175,14 +175,14 @@ export class CohortStorage {
     return entry;
   }
 
-  public bidsFile(frameIdAtCohortActivation: number): JsonStore<IBidsFile> {
-    const frameIdAtCohortBidding = frameIdAtCohortActivation - 1;
-    const key = `bids/frame-${frameIdAtCohortBidding}-${frameIdAtCohortActivation}.json`;
+  public bidsFile(cohortFrameId: number): JsonStore<IBidsFile> {
+    const cohortBiddingFrameId = cohortFrameId - 1;
+    const key = `bids/frame-${cohortBiddingFrameId}-${cohortFrameId}.json`;
     let entry = this.lruCache.get(key);
     if (!entry) {
       entry = new JsonStore<IBidsFile>(Path.join(this.basedir, key), () => ({
-        frameIdAtCohortBidding: frameIdAtCohortBidding,
-        frameIdAtCohortActivation,
+        cohortBiddingFrameId,
+        cohortFrameId,
         frameBiddingProgress: 0,
         lastBlockNumber: 0,
         seatsWon: 0,

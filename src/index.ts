@@ -39,14 +39,14 @@ app.get('/bids', async (_req, res) => {
   const data = await bot.storage.bidsFile(nextFrameId).get();
   jsonExt(data, res);
 });
-app.get('/bids/:frameIdAtCohortActivation', async (req, res) => {
-  const frameIdAtCohortActivation = Number(req.params.frameIdAtCohortActivation);
-  const data = await bot.storage.bidsFile(frameIdAtCohortActivation).get();
+app.get('/bids/:cohortFrameId', async (req, res) => {
+  const cohortFrameId = Number(req.params.cohortFrameId);
+  const data = await bot.storage.bidsFile(cohortFrameId).get();
   jsonExt(data, res);
 });
-app.get('/earnings/:frameIdAtCohortActivation', async (req, res) => {
-  const frameIdAtCohortActivation = Number(req.params.frameIdAtCohortActivation);
-  const data = await bot.storage.earningsFile(frameIdAtCohortActivation).get();
+app.get('/earnings/:cohortFrameId', async (req, res) => {
+  const cohortFrameId = Number(req.params.cohortFrameId);
+  const data = await bot.storage.earningsFile(cohortFrameId).get();
   jsonExt(data, res);
 });
 app.post('/restart-bidder', async (_req, res) => {

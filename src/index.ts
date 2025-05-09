@@ -39,6 +39,10 @@ app.get('/bids', async (_req, res) => {
   const data = await bot.storage.bidsFile(nextFrameId).get();
   jsonExt(data, res);
 });
+app.get('/bids/activity', async (_req, res) => {
+  const history = bot.autobidder.activeBidder?.bidHistory ?? [];
+  jsonExt(history, res);
+});
 app.get('/bids/:cohortFrameId', async (req, res) => {
   const cohortFrameId = Number(req.params.cohortFrameId);
   const data = await bot.storage.bidsFile(cohortFrameId).get();

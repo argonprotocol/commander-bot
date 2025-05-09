@@ -1,5 +1,5 @@
 import { type Accountset, CohortBidder, MiningBids } from '@argonprotocol/mainchain';
-import type { CohortStorage, IBidsFile } from './storage.ts';
+import type { CohortStorage } from './storage.ts';
 import { createBidderParams } from './bidding-calculator/index.ts';
 import { readJsonFileOrNull } from './utils.ts';
 
@@ -60,7 +60,7 @@ export class AutoBidder {
       biddingRules,
     );
     if (params.maxSeats === 0) return;
-    
+
     const bidsFileData = await this.storage.bidsFile(cohortFrameId).get();
     console.log(`Bidding for frame ${cohortFrameId} started`, {
       hasStartingStats: !!bidsFileData,

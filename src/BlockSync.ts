@@ -15,10 +15,11 @@ import {
 } from '@argonprotocol/mainchain';
 import {
   type CohortStorage,
-  type ICohortBiddingStats,
+  type ISubaccount,
   type ISyncState,
   JsonStore,
 } from './storage.ts';
+import { MiningFrames } from './MiningFrames.ts';
 
 const defaultCohort = {
   blocksMined: 0,
@@ -29,8 +30,8 @@ const defaultCohort = {
 };
 
 export interface ILastProcessed {
-  rotationId: number;
   date: Date;
+  frameId: number;
   blockNumber: number;
 }
 
@@ -49,8 +50,15 @@ export class BlockSync {
   latestFinalizedHeader!: Header;
   scheduleTimer?: NodeJS.Timeout;
   statusFile: JsonStore<ISyncState>;
+
+  currentFrameTickRange: [number, number] = [0, 0];
+
+  oldestTick: number = 0;
+  latestTick: number = 0;
+  currentTick: number = 0;
+
   bidChanges?: {
-    cohortId: number;
+    cohortFrameId: number;
     changes: {
       tick: number;
       miners: { address: string; bid: bigint }[];
@@ -58,34 +66,36 @@ export class BlockSync {
     }[];
   };
 
-  didProcessFinalizedBlock?: (info: ILastProcessed) => void;
+  didProcessFinalizedBlock?: (lastProcessed: ILastProcessed) => void;
 
   private unsubscribe?: () => void;
   private previousNextCohortJson?: string;
   private isStopping: boolean = false;
+  private miningFrames: MiningFrames;
 
   constructor(
     public accountset: Accountset,
     public storage: CohortStorage,
     public archiveUrl: string,
-    private oldestRotationToSync?: number,
+    private oldestFrameIdToSync?: number,
   ) {
     this.scheduleNext = this.scheduleNext.bind(this);
     this.statusFile = this.storage.syncStateFile();
+    this.miningFrames = new MiningFrames();
   }
 
-  async status() {
-    const state = await this.statusFile.get();
+  async status(): Promise<Omit<ISyncState, 'lastBlockNumberByFrameId'>> {
+    const statusFileData = (await this.statusFile.get())!;
     return {
-      biddingsLastUpdatedAt: state?.biddingsLastUpdatedAt ?? '',
-      earningsLastUpdatedAt: state?.earningsLastUpdatedAt ?? '',
-      hasWonSeats: state?.hasWonSeats ?? false,
-      lastSynchedBlockNumber: state?.lastBlockNumber ?? 0,
+      bidsLastModifiedAt: statusFileData.bidsLastModifiedAt,
+      earningsLastModifiedAt: statusFileData.earningsLastModifiedAt,
+      hasWonSeats: statusFileData.hasWonSeats ?? false,
+      lastBlockNumber: statusFileData.lastBlockNumber ?? 0,
       lastFinalizedBlockNumber: this.latestFinalizedHeader.number.toNumber(),
-      firstRotationId: state?.firstRotationId ?? 0,
-      currentRotationId: state?.currentRotationId ?? 0,
+      oldestFrameIdToSync: statusFileData.oldestFrameIdToSync ?? 0,
+      currentFrameId: statusFileData.currentFrameId ?? 0,
+      loadProgress: this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]),
       queueDepth: this.queue.length,
-      lastProcessed: this.lastProcessed,
     };
   }
 
@@ -108,23 +118,35 @@ export class BlockSync {
     this.isStopping = false;
     this.archiveClient = await getClient(this.archiveUrl);
     this.localClient = await this.accountset.client;
+
     const finalizedHash = await this.localClient.rpc.chain.getFinalizedHead();
+
     this.latestFinalizedHeader = await this.localClient.rpc.chain.getHeader(finalizedHash);
-    await this.setFirstRotationIfNeeded();
+    this.latestTick = getTickFromHeader(this.localClient, this.latestFinalizedHeader) ?? 0;
+    await this.setOldestFrameIdIfNeeded();
 
-    const state = (await this.statusFile.get())!;
+    const statusFileData = (await this.statusFile.get())!;
+    const oldestTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, statusFileData.oldestFrameIdToSync);
+    this.oldestTick = oldestTickRange[0];
 
-    let header = this.latestFinalizedHeader;
     // plug any gaps in the sync state
-    while (
-      header.number.toNumber() > state.lastBlockNumber + 1 &&
-      (await this.getRotation(header)) >= state.firstRotationId
+    let header = this.latestFinalizedHeader;
+    let headerBlockNumber = header.number.toNumber();
+    let headerFrameId = await this.getFrameIdFromHeader(header);
+    
+    while ( 
+      headerBlockNumber > statusFileData.lastBlockNumber + 1 &&
+      headerFrameId >= statusFileData.oldestFrameIdToSync
     ) {
+      console.log(`Queuing frame ${headerFrameId} block ${headerBlockNumber}`);
       this.queue.unshift(header);
       header = await this.getParentHeader(header);
+      headerBlockNumber = header.number.toNumber();
+      headerFrameId = await this.getFrameIdFromHeader(header);
     }
+
     console.log('Sync starting', {
-      ...state,
+      ...statusFileData,
       queue: `${this.queue.at(0)?.number.toNumber()}..${this.queue.at(-1)?.number.toNumber()}`,
     });
 
@@ -151,6 +173,7 @@ export class BlockSync {
       this.queue.push(header);
       this.queue.sort((a, b) => a.number.toNumber() - b.number.toNumber());
     });
+
     await this.scheduleNext();
   }
 
@@ -159,9 +182,9 @@ export class BlockSync {
     let waitTime = 500;
     if (this.queue.length) {
       // plug any gaps in the sync state
-      const state = (await this.statusFile.get())!;
+      const statusFileData = (await this.statusFile.get())!;
       let first = this.queue.at(0)!;
-      while (first.number.toNumber() > state.lastBlockNumber + 1) {
+      while (first.number.toNumber() > statusFileData.lastBlockNumber + 1) {
         first = await this.getParentHeader(first);
         this.queue.unshift(first);
       }
@@ -183,7 +206,7 @@ export class BlockSync {
   async processHeader(header: Header) {
     const author = getAuthorFromHeader(this.localClient, header);
     const tick = getTickFromHeader(this.localClient, header);
-    const rotationId = await this.getRotation(header);
+    const currentFrameId = await this.getFrameIdFromHeader(header);
 
     if (!tick || !author) {
       console.warn('No tick or author found for header', header.number.toNumber());
@@ -193,52 +216,70 @@ export class BlockSync {
     const client = this.getRpcClient(header);
     const api = await client.at(header.hash);
     const events = await api.query.system.events();
-    const { rotation: _r, ...cohortIds } = await this.accountMiners.onBlock(
+    const { rotation: _r, ...cohortActivationAtFrameIds } = await this.accountMiners.onBlock(
       header,
       { tick, author },
       events.map(x => x.event),
     );
     const tickDate = new Date(tick * 60000);
 
+    if (this.lastProcessed?.frameId !== currentFrameId) {
+      this.currentFrameTickRange = await this.miningFrames.getTickRangeForFrame(this.localClient, currentFrameId);
+    }
+
     const didChangeBiddings = await this.syncBidding(header, events);
-    await this.storage.earningsFile(rotationId).mutate(x => {
+    await this.storage.earningsFile(currentFrameId).mutate(x => {
       if (x.lastBlockNumber >= header.number.toNumber()) {
         console.warn('Already processed block', {
-          lastStored: x.lastBlockNumber,
+          lastBlockNumber: x.lastBlockNumber,
           blockNumber: header.number.toNumber(),
         });
         return false;
       }
+      x.frameProgress = this.calculateProgress(tick, this.currentFrameTickRange);
       x.lastBlockNumber = header.number.toNumber();
-      for (const [id, earnings] of Object.entries(cohortIds)) {
-        const cohortId = Number(id);
+      for (const [cohortFrameIdStr, earnings] of Object.entries(cohortActivationAtFrameIds)) {
+        const cohortFrameId = Number(cohortFrameIdStr);
         const { argonsMinted, argonotsMined, argonsMined } = earnings;
-        x.byCohortId[cohortId] ??= structuredClone(defaultCohort);
-        x.byCohortId[cohortId].argonotsMined += argonotsMined;
-        x.byCohortId[cohortId].argonsMined += argonsMined;
-        x.byCohortId[cohortId].argonsMinted += argonsMinted;
+        x.byCohortFrameId[cohortFrameId] ??= structuredClone(defaultCohort);
+        x.byCohortFrameId[cohortFrameId].argonotsMined += argonotsMined;
+        x.byCohortFrameId[cohortFrameId].argonsMined += argonsMined;
+        x.byCohortFrameId[cohortFrameId].argonsMinted += argonsMinted;
         if (argonsMined > 0n) {
-          x.byCohortId[cohortId].blocksMined += 1;
-          x.byCohortId[cohortId].lastBlockMinedAt = tickDate.toString();
+          x.byCohortFrameId[cohortFrameId].blocksMined += 1;
+          x.byCohortFrameId[cohortFrameId].lastBlockMinedAt = tickDate.toString();
         }
       }
 
       console.log('Processed finalized block', {
-        rotationId,
+        currentFrameId,
         blockNumber: header.number.toNumber(),
       });
     });
+
+    this.currentTick = tick ?? 0;
+    if ( this.latestTick < this.currentTick) {
+      this.latestTick = this.currentTick;
+    }
+    this.lastProcessed = {
+      date: new Date(),
+      frameId: currentFrameId,
+      blockNumber: header.number.toNumber(), 
+    };
+
     await this.statusFile.mutate(x => {
       if (x.lastBlockNumber >= header.number.toNumber()) {
         return false;
       }
-      if (didChangeBiddings) x.biddingsLastUpdatedAt = new Date().toISOString();
-      x.earningsLastUpdatedAt = new Date().toISOString();
+      if (didChangeBiddings) x.bidsLastModifiedAt = new Date();
+      x.earningsLastModifiedAt = new Date();
       x.lastBlockNumber = header.number.toNumber();
-      x.currentRotationId = rotationId;
-      x.lastBlockNumberByRotationId[rotationId] = header.number.toNumber();
+      x.currentFrameId = currentFrameId;
+      x.loadProgress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
+      x.queueDepth = this.queue.length;
+      x.lastBlockNumberByFrameId[currentFrameId] = header.number.toNumber();
     });
-    this.lastProcessed = { blockNumber: header.number.toNumber(), rotationId, date: new Date() };
+    
     this.didProcessFinalizedBlock?.(this.lastProcessed);
   }
 
@@ -257,13 +298,14 @@ export class BlockSync {
     return this.localClient;
   }
 
-  private async setFirstRotationIfNeeded() {
-    const state = await this.statusFile.get();
-    if (state && state.firstRotationId > 0) return;
-    const rotationId =
-      this.oldestRotationToSync ?? (await this.getRotation(this.latestFinalizedHeader));
+  private async setOldestFrameIdIfNeeded() {
+    const statusFileData = await this.statusFile.get();
+    if (statusFileData && statusFileData.oldestFrameIdToSync > 0) return;
+    const oldestFrameIdToSync =
+      this.oldestFrameIdToSync ?? (await this.getFrameIdFromHeader(this.latestFinalizedHeader));
     await this.statusFile.mutate(x => {
-      x.firstRotationId = rotationId;
+      x.oldestFrameIdToSync = oldestFrameIdToSync;
+      x.loadProgress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
     });
   }
 
@@ -271,12 +313,12 @@ export class BlockSync {
     return this.getRpcClient(header).rpc.chain.getHeader(header.parentHash);
   }
 
-  private async getRotation(header: Header): Promise<number> {
-    const rotation = await new MiningRotations().getForHeader(this.localClient, header);
-    if (rotation === undefined) {
-      throw new Error(`Error getting rotation for header ${header.number.toNumber()}`);
+  private async getFrameIdFromHeader(header: Header): Promise<number> {
+    const currentFrameId = await new MiningRotations().getForHeader(this.localClient, header);
+    if (currentFrameId === undefined) {
+      throw new Error(`Error getting frame id for header ${header.number.toNumber()}`);
     }
-    return rotation;
+    return currentFrameId;
   }
 
   private async syncBidding(header: Header, events: Vec<FrameSystemEventRecord>): Promise<boolean> {
@@ -285,13 +327,14 @@ export class BlockSync {
     const headerTick = getTickFromHeader(client, header);
 
     const blockNumber = header.number.toNumber();
-    const biddingCohort = await api.query.miningSlot.nextCohortId().then(x => x.toNumber());
-    const biddingFile = this.storage.biddingsFile(biddingCohort);
+    const cohortFrameId = await api.query.miningSlot.nextCohortId().then(x => x.toNumber());
+    const bidsFile = this.storage.bidsFile(cohortFrameId);
     const nextCohort = await api.query.miningSlot.nextSlotCohort();
+    
     let didChangeBiddings = false;
     if (this.previousNextCohortJson !== nextCohort.toJSON()) {
       this.previousNextCohortJson = JSON.stringify(nextCohort.toJSON());
-      didChangeBiddings = await biddingFile.mutate(async x => {
+      didChangeBiddings = await bidsFile.mutate(async x => {
         if (x.lastBlockNumber >= blockNumber) {
           console.warn('Already processed block', {
             lastStored: x.lastBlockNumber,
@@ -299,30 +342,32 @@ export class BlockSync {
           });
           return false;
         }
-        if (!x.cohortArgonsPerBlock) {
+        if (!x.argonsToBeMinedPerBlock) {
           const startingStats = await CohortBidder.getStartingData(api);
-          Object.assign(x, startingStats);
+          x.argonotsUsdPrice = startingStats.argonotUsdPrice
+          x.argonotsStakedPerSeat = startingStats.argonotsPerSeat
+          x.argonsToBeMinedPerBlock = startingStats.cohortArgonsPerBlock
         }
-
+        x.frameBiddingProgress = this.calculateProgress(headerTick, this.currentFrameTickRange);
         x.lastBlockNumber = blockNumber;
         // we just want to know who has a winning bid so we don't outbid them on restart
         x.subaccounts = nextCohort
-          .map((c, i): ICohortBiddingStats['subaccounts'][0] | undefined => {
+          .map((c, i): ISubaccount | undefined => {
             const address = c.accountId.toHuman();
             if (!this.accountset.subAccountsByAddress[address]) return undefined;
             const ourMiner = this.accountset.subAccountsByAddress[address];
             return {
-              subaccountIndex: ourMiner.index,
+              index: ourMiner.index,
               address,
-              bidPlace: i,
-              lastBidAtTick: c.bidAtTick.toNumber(),
+              bidPosition: i,
+              lastBidAtTick: c.bidAtTick?.toNumber(),
             };
           })
           .filter(x => x !== undefined);
       });
 
-      if (this.bidChanges?.cohortId !== biddingCohort) {
-        this.bidChanges = { cohortId: biddingCohort, changes: [] };
+      if (this.bidChanges?.cohortFrameId !== cohortFrameId) {
+        this.bidChanges = { cohortFrameId, changes: [] };
       }
 
       const previous = this.bidChanges?.changes.at(-1)?.miners ?? [];
@@ -350,10 +395,10 @@ export class BlockSync {
         const extrinsicEvents = events.filter(
           x => x.phase.isApplyExtrinsic && x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex,
         );
-        const miningFee = await this.hasMiningFee(client, event, extrinsicEvents);
-        if (miningFee > 0n) {
+        const transactionFee = await this.extractTransactionFee(client, event, extrinsicEvents);
+        if (transactionFee > 0n) {
           const blockNumber = header.number.toNumber();
-          didChangeBiddings ||= await biddingFile.mutate(x => {
+          didChangeBiddings ||= await bidsFile.mutate(x => {
             if (x.lastBlockNumber >= blockNumber) {
               console.warn('Already processed cohort block', {
                 lastStored: x.lastBlockNumber,
@@ -361,7 +406,7 @@ export class BlockSync {
               });
               return false;
             }
-            x.fees += miningFee;
+            x.transactionFees += transactionFee;
           });
         }
       }
@@ -369,46 +414,48 @@ export class BlockSync {
       if (phase.isFinalization && client.events.miningSlot.NewMiners.is(event)) {
         console.log('New miners event', event.data.toJSON());
         let hasWonSeats = false;
-        const [_startIndex, newMiners, _released, cohortId] = event.data;
-        await this.storage.biddingsFile(cohortId.toNumber()).mutate(x => {
-          x.seats = 0;
-          x.totalArgonsBid = 0n;
+        const [_startIndex, newMiners, _released, cohortFrameId] = event.data;
+        await this.storage.bidsFile(cohortFrameId.toNumber()).mutate(x => {
+          x.seatsWon = 0;
+          x.argonsBidTotal = 0n;
           x.subaccounts = [];
           x.lastBlockNumber = blockNumber;
 
-          let index = 0;
+          let bidPosition = 0;
           for (const miner of newMiners) {
             const address = miner.accountId.toHuman();
-            const bidAmount = miner.bid.toBigInt();
+            const argonsBid = miner.bid.toBigInt();
             const ourMiner = this.accountset.subAccountsByAddress[address];
+            
             if (ourMiner) {
               hasWonSeats = true;
-              x.seats += 1;
-              x.totalArgonsBid += bidAmount;
-              if (bidAmount > x.maxBidPerSeat) {
-                x.maxBidPerSeat = bidAmount;
-              }
+              x.seatsWon += 1;
+              x.argonsBidTotal += argonsBid;
               x.subaccounts.push({
-                subaccountIndex: ourMiner.index,
+                index: ourMiner.index,
                 address,
-                lastBidAtTick: miner.bidAtTick.toNumber(),
-                bidPlace: index,
+                lastBidAtTick: miner.bidAtTick?.toNumber(),
+                bidPosition,
+                argonsBid,
               });
             }
-            index++;
+            bidPosition++;
           }
         });
         await this.statusFile.mutate(x => {
+          x.bidsLastModifiedAt = new Date();
+          x.loadProgress = this.calculateProgress(this.currentTick, [this.oldestTick, this.latestTick]);
           if (hasWonSeats) {
             x.hasWonSeats = true;
           }
         });
       }
     }
+
     return didChangeBiddings;
   }
 
-  private async hasMiningFee(
+  private async extractTransactionFee(
     client: ArgonClient,
     event: GenericEvent,
     extrinsicEvents: FrameSystemEventRecord[],
@@ -444,5 +491,11 @@ export class BlockSync {
       return fee.toBigInt();
     }
     return 0n;
+  }
+
+  calculateProgress(tick: number | undefined, tickRange: [number, number] | undefined): number {
+    if (!tick || !tickRange) return 0;
+    const progress = tick ? (tick - tickRange[0]) / (tickRange[1] - tickRange[0]) : 0;
+    return Math.round(progress * 10000) / 100;
   }
 }

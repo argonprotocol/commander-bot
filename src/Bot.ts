@@ -17,11 +17,11 @@ export default class Bot {
       archiveRpcUrl: string;
       biddingRulesPath: string;
       keysMnemonic: string;
-      oldestRotationToSync?: number;
+      oldestFrameIdToSync?: number;
     },
   ) {
-    this.storage = new CohortStorage(options.datadir);
     const client = getClient(options.localRpcUrl);
+    this.storage = new CohortStorage(options.datadir, client);
     this.accountset = new Accountset({
       client,
       seedAccount: options.pair,
@@ -33,8 +33,13 @@ export default class Bot {
       this.accountset,
       this.storage,
       options.archiveRpcUrl,
-      options.oldestRotationToSync,
+      options.oldestFrameIdToSync,
     );
+  }
+
+  async currentFrameId() {
+    const state = await this.storage.syncStateFile().get();
+    return state?.currentFrameId ?? 0;
   }
 
   async status() {

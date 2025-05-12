@@ -20,7 +20,7 @@
 
     // Some stricter flags
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedParameters": true
   },
   "include": ["src", "__test__", "env.ts"]
 }

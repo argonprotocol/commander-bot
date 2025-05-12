@@ -9,8 +9,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@argonprotocol/commander-bot@workspace:."
   dependencies:
-    "@argonprotocol/mainchain": "npm:^1.1.0-rc.8"
-    "@argonprotocol/testing": "npm:^1.1.0-rc.8"
+    "@argonprotocol/mainchain": "npm:^1.1.0"
+    "@argonprotocol/testing": "npm:^1.1.0"
     "@types/express": "npm:^5.0.1"
     express: "npm:^5.1.0"
     prettier: "npm:^3.5.3"
@@ -21,9 +21,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@argonprotocol/mainchain@npm:1.1.0-rc.8, @argonprotocol/mainchain@npm:^1.1.0-rc.8":
-  version: 1.1.0-rc.8
-  resolution: "@argonprotocol/mainchain@npm:1.1.0-rc.8"
+"@argonprotocol/mainchain@npm:1.1.0, @argonprotocol/mainchain@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@argonprotocol/mainchain@npm:1.1.0"
   dependencies:
     "@commander-js/extra-typings": "npm:^13.1.0"
     "@polkadot/api": "npm:^15.8.1"
@@ -43,22 +43,22 @@ __metadata:
       optional: true
   bin:
     mainchain: lib/cli.js
-  checksum: 10c0/821632a63f02c3bc7c8eb4cb677f05ccecb8a91007bb44635bbf1312cf1097602b366129163f898c8533bad90e591bf9b50a95010d452bc5466ba8d55bed50b8
+  checksum: 10c0/24955e400fe43fb36d60b28a2786f403f9a37d8895b17edeeb35045f4d0d1bf167f3d19bf941a08f5d77c645078d8e941b30de80ebd136d11c5b740606565134
   languageName: node
   linkType: hard
 
-"@argonprotocol/testing@npm:^1.1.0-rc.8":
-  version: 1.1.0-rc.8
-  resolution: "@argonprotocol/testing@npm:1.1.0-rc.8"
+"@argonprotocol/testing@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@argonprotocol/testing@npm:1.1.0"
   dependencies:
-    "@argonprotocol/mainchain": "npm:1.1.0-rc.8"
+    "@argonprotocol/mainchain": "npm:1.1.0"
     bitcoin-core: "npm:^5.0.0"
     detect-port: "npm:^2.1.0"
     http-proxy: "npm:^1.18.1"
     nanoid: "npm:^3.3.7"
     pg: "npm:^8.11.3"
     vitest: "npm:^3.1.1"
-  checksum: 10c0/1ffa5e30c3eef1071c0b2b23cb3df8cae6fcdf11a41fc2020ebbb837853e5585e2ededa61eded0db59c65b7b859fb9dd2f086eb2b09a54000e8ea7c90b9ff9c3
+  checksum: 10c0/9cbda5f29b6ab1c82fe7992748dc5d0bf3e37ca16a35ce533373909b70688bdf20fc0a1e2cc3a51b908f7ab2adf5e665b08a022bc8550a2ff3b2c36aaaa6e726
   languageName: node
   linkType: hard
 

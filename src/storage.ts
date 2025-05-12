@@ -106,7 +106,7 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
 
   public async get(): Promise<T | undefined> {
     await this.load();
-    return structuredClone(this.data || this.defaults as T);
+    return structuredClone(this.data || (this.defaults as T));
   }
 
   private async load(): Promise<void> {
@@ -124,7 +124,10 @@ export class JsonStore<T extends Record<string, any> & ILastModifiedAt> {
 }
 
 export class CohortStorage {
-  constructor(private basedir: string, private clientPromise: Promise<ArgonClient>) {
+  constructor(
+    private basedir: string,
+    private clientPromise: Promise<ArgonClient>,
+  ) {
     fs.mkdirSync(this.basedir, { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'bids'), { recursive: true });
     fs.mkdirSync(Path.join(this.basedir, 'earnings'), { recursive: true });

@@ -11,7 +11,7 @@ export async function createBidderParams(
   return {
     minBid: 0n,
     maxBid: 0n,
-    maxBalance: 0n,
+    maxBudget: 0n,
     bidIncrement: 0n,
     maxSeats: 0,
     bidDelay: 0,

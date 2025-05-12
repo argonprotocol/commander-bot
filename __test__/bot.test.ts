@@ -44,7 +44,7 @@ it('can autobid and store stats', async () => {
     return {
       maxSeats: 10,
       bidDelay: 0,
-      maxBalance: 100_000_000n,
+      maxBudget: 100_000_000n,
       maxBid: 1_000_000n,
       minBid: 10_000n,
       bidIncrement: 10_000n,
